@@ -7,10 +7,10 @@ import sys
 from pathlib import Path
 
 VALID_USERS = ["kris", "joram"]
-VALID_OPERATIONS = ["code", "create", "logs"]
+VALID_OPERATIONS = ["code", "create", "delete", "logs"]
 PROJECT_DIR = Path("projects")
 
-args = None
+args: argparse.Namespace
 
 
 def can_do() -> str:
@@ -42,7 +42,7 @@ def get_opts():
     global args
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("operation", type=operation, help="code, create or logs")
+    parser.add_argument("operation", type=operation, help="code, create, delete or logs")
     parser.add_argument("project", help="a valid project name")
 
     parser.add_argument("--hostname", help="hostname (in create)")
@@ -88,6 +88,14 @@ def create_deploy_description(project: str, hostname: str, unixuser: str, projec
         f.write(deployment_json)
 
 
+def delete_deployment_description(project: str):
+    p = PROJECT_DIR / project
+    if not p.is_file():
+        raise ValueError(f"cannot delete deployment {project}, no project file found.")
+
+    p.unlink()
+
+
 def main():
     # Check valid user, and grab the call options
     user = can_do()
@@ -99,6 +107,8 @@ def main():
     elif args.operation == "create":
         create_deploy_description(project=args.project, hostname=args.hostname, unixuser=args.unixuser,
                                   projectdir=args.projectdir)
+    elif args.operation == "delete":
+        delete_deployment_description(project=args.project)
     elif args.operation == "logs":
         pass
     else:
