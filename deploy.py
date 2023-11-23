@@ -13,6 +13,7 @@ VALID_OPERATIONS = ["code", "create", "delete", "logs"]
 PROJECT_DIR = Path("/etc/projects")
 CHECKOUT_CMD = "/usr/bin/git pull --rebase"
 RESTART_CMD = "sudo apachectl stop; sleep 1; sudo apachectl start"
+LOG_CMD = "tail -F "
 
 args: argparse.Namespace
 
@@ -54,20 +55,44 @@ def get_opts():
     parser.add_argument("--projectdir", help="projectdir (in create)")
     parser.add_argument("--checkout-cmd", help="command to check out the source (in create, optional)")
     parser.add_argument("--restart-cmd", help="command to run after checkout (in create, optional)")
+
+    parser.add_argument("--log-cmd", help="command to run after checkout (in logs, optional)")
+
     args = parser.parse_args()
 
 
 def show_run_result(result: subprocess.CompletedProcess):
     code = result.returncode
+    stdout = result.stdout.decode('utf-8')
+    stderr = result.stderr.decode('utf-8')
+
     if code == 0:
         print("*** SUCCESS:")
-        print(result.stdout.decode('utf-8'))
-        print(result.stderr.decode('utf-8'))
     else:
         print(f"*** ERROR: exit code={result.returncode}")
-        print(result.stdout.decode('utf-8'))
-        print(result.stderr.decode('utf-8'))
-    print()
+
+    if stdout:
+        print(stdout)
+    if stderr:
+        print(stderr)
+
+
+def log_project(project: str):
+    p = PROJECT_DIR / project
+    if not p.is_file():
+        raise ValueError(f"cannot deploy to project {project}, no project file found.")
+
+    config = load_deploy_description(project)
+    os.chdir(config["projectdir"])
+
+    if config['log_cmd'] == LOG_CMD:
+        log_cmd = config['log_cmd']
+        log_cmd += f"/var/log/apache2/access-{config['hostname']}.log "
+        log_cmd += f"/var/log/apache2/error-{config['hostname']}.log "
+    else:
+        log_cmd = config['log_cmd']
+    print(f"Running {log_cmd}")
+    subprocess.run(log_cmd, shell=True)
 
 
 def deploy_code(project: str):
@@ -108,7 +133,8 @@ def create_deploy_description(project: str,
                               unixuser: str,
                               projectdir: str,
                               checkout_cmd: str,
-                              restart_cmd: str):
+                              restart_cmd: str,
+                              log_cmd:str):
     if project is None or hostname is None or projectdir is None:
         raise ValueError("Missing options: specify --hostname, --unixuser and --projectdir.")
 
@@ -117,6 +143,9 @@ def create_deploy_description(project: str,
 
     if restart_cmd is None:
         restart_cmd = RESTART_CMD
+
+    if log_cmd is None:
+        log_cmd = LOG_CMD
 
     # check the hostname
     if not hostname.endswith("snackbag.net"):
@@ -139,6 +168,7 @@ def create_deploy_description(project: str,
         "projectdir": projectdir,
         "checkout_cmd": checkout_cmd,
         "restart_cmd": restart_cmd,
+        "log_cmd": log_cmd,
     }
     deployment_json = json.dumps(deployment, indent=2, sort_keys=True) + "\n"
 
@@ -174,11 +204,12 @@ def main():
                                   unixuser=args.unixuser,
                                   projectdir=args.projectdir,
                                   checkout_cmd=args.checkout_cmd,
-                                  restart_cmd=args.restart_cmd)
+                                  restart_cmd=args.restart_cmd,
+                                  log_cmd=args.log_cmd)
     elif args.operation == "delete":
         delete_deployment_description(project=args.project)
     elif args.operation == "logs":
-        pass
+        log_project(project=args.project)
     else:
         raise ValueError(f"This can never happen: {args.operation=}")
 
