@@ -9,10 +9,10 @@ import sys
 from pathlib import Path
 
 VALID_USERS = ["kris", "joram"]
-VALID_OPERATIONS = ["code", "create", "delete", "logs"]
+VALID_OPERATIONS = ["code", "create", "delete", "deploy", "logs", "show"]
 PROJECT_DIR = Path("/etc/projects")
 CHECKOUT_CMD = "/usr/bin/git pull --rebase"
-RESTART_CMD = "sudo apachectl stop; sleep 1; sudo apachectl start"
+RESTART_CMD = "sudo apache_restart"
 LOG_CMD = "tail -F "
 
 args: argparse.Namespace
@@ -47,7 +47,7 @@ def get_opts():
     global args
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("operation", type=operation, help="code, create, delete or logs")
+    parser.add_argument("operation", type=operation, help="code or deploy, logs, show, create, delete")
     parser.add_argument("project", help="a valid project name")
 
     parser.add_argument("--hostname", help="hostname (in create)")
@@ -134,7 +134,7 @@ def create_deploy_description(project: str,
                               projectdir: str,
                               checkout_cmd: str,
                               restart_cmd: str,
-                              log_cmd:str):
+                              log_cmd: str):
     if project is None or hostname is None or projectdir is None:
         raise ValueError("Missing options: specify --hostname, --unixuser and --projectdir.")
 
@@ -190,13 +190,34 @@ def delete_deployment_description(project: str):
     p.unlink()
 
 
+def show_all_deployment_descriptions():
+    p = PROJECT_DIR.glob("*")
+    names = [n.name for n in p]
+
+    for name in sorted(names):
+        print(f"- {name}")
+
+
+def show_deployment_description(project: str):
+    if project == "project" or project == "projects":
+        show_all_deployment_descriptions()
+        return
+
+    config = load_deploy_description(project)
+    max_key_len = max(len(key) for key in config)
+
+    print(f"*** PROJECT {project}")
+    for k, v in sorted(config.items()):
+        print(f"- {k:<{max_key_len}}: {v}")
+
+
 def main():
     # Check valid user, and grab the call options
     user = can_do()
     get_opts()
 
     # operation is one of the things in VALID_OPERATIONS
-    if args.operation == "code":
+    if args.operation == "code" or args.operation == "deploy":
         deploy_code(project=args.project)
     elif args.operation == "create":
         create_deploy_description(project=args.project,
@@ -210,6 +231,8 @@ def main():
         delete_deployment_description(project=args.project)
     elif args.operation == "logs":
         log_project(project=args.project)
+    elif args.operation == "show":
+        show_deployment_description(project=args.project)
     else:
         raise ValueError(f"This can never happen: {args.operation=}")
 
