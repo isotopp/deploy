@@ -273,6 +273,7 @@ def _put_sslsites(sites: List[str]):
 
     return
 
+
 # TODO
 def create_sslsite(hostname: str):
     sites = _get_sslsites()
@@ -291,6 +292,7 @@ Use PyApp {hostname} {project} {projectdir}/{project} {unixuser} {unixuser}
         f.write(siteconf)
 
     return
+
 
 # TODO
 def run_a2ensite(hostname: str):
@@ -315,7 +317,7 @@ def apache_double_reload():
 
 
 # TODO
-def initial_checkout(target_dir: str, repo: str, username: str):
+def initial_checkout(target_dir: str, repo: Path, username: str):
     git_cmd = f"git checkout {repo}"
 
     os.chdir(target_dir)
@@ -324,6 +326,7 @@ def initial_checkout(target_dir: str, repo: str, username: str):
     chown_tree(repo, username, username)
 
     return
+
 
 def get_opts():
     """ Parse the program options using ArgumentParser.
