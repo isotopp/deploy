@@ -11,6 +11,7 @@ from pathlib import Path
 VALID_USERS = ["kris", "joram"]
 VALID_OPERATIONS = ["code", "create", "delete", "deploy", "logs", "show"]
 PROJECT_DIR = Path("/etc/projects")
+
 CHECKOUT_CMD = "/usr/bin/git pull --rebase"
 RESTART_CMD = "sudo apache_restart"
 LOG_CMD = "tail -F "
@@ -102,9 +103,9 @@ def deploy_code(project: str):
 
     config = load_deploy_description(project)
     os.chdir(config["projectdir"])
-
+    cwd = os.getcwd()
     deploy_cmd = f"sudo -u {config['unixuser']} {config['checkout_cmd']}"
-    print(f"Running deploy_cmd {deploy_cmd}")
+    print(f"In '{cwd}', run command: '{deploy_cmd}'")
 
     deploy_result = subprocess.run(deploy_cmd, shell=True, capture_output=True, timeout=30)
     show_run_result(deploy_result)
@@ -159,7 +160,7 @@ def create_deploy_description(project: str,
 
     # check the projectdir
     if not Path(projectdir).is_dir():
-        raise ValueError(f"projectdir {projectdir} does not a directory")
+        raise ValueError(f"projectdir {projectdir} is not a directory")
 
     # to json
     deployment = {
