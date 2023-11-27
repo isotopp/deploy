@@ -1,0 +1,7 @@
+#! /bin/bash --
+
+systemctl stop apache2.service
+sleep 1
+systemctl start apache2.service
+sleep 1
+systemctl status apache2.service
