@@ -1,0 +1,326 @@
+#! /usr/bin/env python3
+
+import argparse
+import getpass
+import grp
+import json
+import os
+import pwd
+import re
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Optional
+
+VALID_USERS = ["kris", "joram"]
+VALID_OPERATIONS = ["create", "delete", "show"]
+PROJECT_DIR = Path("/etc/projects")
+
+SSL_SITES_FILE = "/etc/apache2/sites-available/000-ssldomain.conf"
+SITES_DIR = "/etc/apache2/sites-available"
+
+CHECKOUT_CMD = "/usr/bin/git pull --rebase"
+RESTART_CMD = "sudo apache_restart"
+LOG_CMD = "tail -F "
+
+args: argparse.Namespace
+
+
+def chown_tree(start: Path, username: str, groupname: str, topdown=True):
+    """ change the ownership of the file tree starting at `start` to
+        the UNIX user `username` and the UNIX group `groupname`.
+        When `topdown` is set (the default) change happens from top to bottom,
+        otherwise the other way around.
+    """
+    for root, dirs, files in os.walk(start, topdown=topdown):
+        for the_dir in dirs:
+            dname = Path(root) / the_dir
+            shutil.chown(dname, username, groupname)
+
+        for the_file in files:
+            fname = Path(root) / the_file
+            shutil.chown(fname, username, groupname)
+
+    shutil.chown(start, username, groupname)
+
+
+def can_do() -> str:
+    """ Deployments can be done by one of the users listed in VALID USERS.
+        We raise a ValueError if we are being run by somebody else.
+    """
+    user = getpass.getuser()
+    if user in VALID_USERS:
+        return user
+
+    raise ValueError(f"invalid user {user}, valid users are: {VALID_USERS}")
+
+
+def operation(the_op: str) -> str:
+    """ ArgumentParser validator for the positional parameter operation.
+        Valid operations are in VALID_OPERATIONS.
+        We raise a ValueError for anything else.
+    """
+    if the_op in VALID_OPERATIONS:
+        return the_op
+
+    raise ValueError
+
+
+def show_run_result(result: subprocess.CompletedProcess):
+    """ Print a `subcommand.run()` result structure.
+    """
+    code = result.returncode
+    stdout = result.stdout.decode('utf-8')
+    stderr = result.stderr.decode('utf-8')
+
+    if code == 0:
+        print("*** SUCCESS:")
+    else:
+        print(f"*** ERROR: exit code={result.returncode}")
+
+    if stdout:
+        print(stdout)
+    if stderr:
+        print(stderr)
+
+
+def validate_user(username: str, homedir: str, comment: str) -> bool:
+    """ Check if a user exists, True if so, False otherwise.
+
+        Raises a ValueError exception if the user exists, but homedir
+        and comment do not match expectations.
+    """
+    exists = True
+    try:
+        userdata = pwd.getpwnam(username)
+    except KeyError as e:
+        return False
+
+    # exists must be true
+    if homedir != userdata.pw_dir:
+        raise ValueError(f"homedir '{userdata.pw_dir}', expected '{homedir}'")
+
+    if comment != userdata.pw_gecos:
+        raise ValueError(f"homedir '{userdata.pw_gecos}', expected '{comment}'")
+
+    return exists
+
+
+def create_user(username: str, homedir: Optional[str] = None, comment: Optional[str] = None, exist_ok: bool = False):
+    """ Create a new user `username`.
+
+        The User will have the homedir `/home/<username>` unless a different `homedir` is specified.
+
+        The User will have the comment `Managed WGSI Application <username>` unless a different `comment` is specified.
+
+        If `exist_ok == True`, it is okay for the user to exist, but a ValueError will be raised, if `homedir`
+        or `comment` do not match.
+    """
+    USERNAME_REGEX = r"[a-z_][a-z0-9_]{1,10}"
+    m = re.fullmatch(USERNAME_REGEX, username)
+    if m is None:
+        raise ValueError(f"username '{username}' does not match '{USERNAME_REGEX}'")
+
+    if homedir is None:
+        homedir = f"/home/{username}"
+
+    if comment is None:
+        comment = f"Managed WSGI Application {username}"
+
+    if validate_user(username, homedir, comment):
+        # user exists and is correct
+        return
+
+    # user must be created
+    useradd_cmd = f"/usr/sbin/useradd -d {homedir} -c {comment} {username}"
+    useradd_result = subprocess.run(useradd_cmd, shell=True, capture_output=True, timeout=30)
+    show_run_result(useradd_result)
+
+    return
+
+
+def _create_dotsshdir(homedir: Path):
+    """ Create a subdirectory `.ssh` in the users home directory.
+        The ownership for this directory is not set properly.
+    """
+    sshdir = homedir / ".ssh"
+    sshdir.mkdir(0700, parents=True, exist_ok=True)
+
+    return
+
+
+def _create_sshkey(homedir: Path) -> str:
+    """ Create a `.ssh` subdirectory in the users home. Then generate a passwordless
+        RSA 4096-bit ssh keypair in there.
+        The ownership for the directory and the key are not set properly.
+
+        Returns the pubkey part of the generated keypair.
+    """
+    _create_dotsshdir(homedir)
+
+    sshkeygen_cmd = "ssh-keygen -t rsa -b 4096 -N "" -f {homedir}/.ssh/id_rsa"
+    sshkeygen_result = subprocess.run(sshkeygen_cmd, shell=True, capture_output=True, timeout=30)
+    show_run_result(sshkeygen_result)
+
+    pubkeyfilename = f"{homedir}/.ssh/id_rsa.pub"
+    with open(pubkeyfilename, "rt") as f:
+        pubkey = f.read()
+
+    return pubkey
+
+
+def create_deploykey(username: str) -> str:
+    """ Create a .ssh directory and ssh keypair, sets ownership and permissions correctly.
+        Returns the pubkey part of the generated keypair.
+    """
+    user = pwd.getpwnam(username)
+    homedir = Path(user.pw_dir)
+
+    _create_dotsshdir(homedir)
+    pubkey = _create_sshkey(homedir)
+
+    chown_tree(homedir, username, username)
+
+    return pubkey
+
+
+def create_deploy_description(project: str,
+                              repo: str,
+                              hostname: Optional[str] = None,
+                              unixuser: Optional[str] = None,
+                              projectdir: Optional[str] = None,
+                              checkout_cmd: Optional[str] = None,
+                              restart_cmd: Optional[str] = None,
+                              log_cmd: Optional[str] = None,
+                              overwrite: bool = False):
+    """ Create a deployment description for a project in `/etc/projects`.
+        Will not overwrite an existing project unless `overwrite=True`.
+
+        Optional parameters can be passed, or will be inferred, if left at `None`.
+
+        Default `hostname` is `<project>.snackbag.net.
+        Default `unixuser` is `<project>`.
+        Default `projectdir` is `$HOME/<project>`.
+        Default `checkout_cmd` is `git pull --rebase`.
+        Default `restart_cmd` is `sudo apache_restart`.
+        Default `log_cmd` is `tail -F`.
+    """
+    if hostname is None:
+        hostname = f"{project}.snackbag.net"
+
+    if unixuser is None:
+        unixuser = project
+
+    if projectdir is None:
+        u = pwd.getpwnam(unixuser)
+        h = u.pw_dir
+        projectdir = f"{h}/{project}"
+
+    if checkout_cmd is None:
+        checkout_cmd = CHECKOUT_CMD
+
+    if restart_cmd is None:
+        restart_cmd = RESTART_CMD
+
+    if log_cmd is None:
+        log_cmd = LOG_CMD
+
+    # check the hostname
+    if not hostname.endswith("snackbag.net"):
+        raise ValueError(f"invalid hostname {hostname}, must end in 'snackbag.net'")
+
+    # to json
+    deployment = {
+        "hostname": hostname,
+        "unixuser": unixuser,
+        "projectdir": projectdir,
+        "checkout_cmd": checkout_cmd,
+        "restart_cmd": restart_cmd,
+        "log_cmd": log_cmd,
+    }
+    deployment_json = json.dumps(deployment, indent=2, sort_keys=True) + "\n"
+
+    # write it
+    p = PROJECT_DIR / project
+    if p.is_file() and not overwrite:
+        print(f"Project {project} already exists.", file=sys.stderr)
+        raise FileExistsError(f"can't create: project {project} exists.")
+
+    with p.open("wt") as f:
+        f.write(deployment_json)
+
+    return
+
+
+def _get_sslsites() -> List[str]:
+    p = Path(SSL_SITES_FILE)
+    with open(p, "rt") as f:
+        sslsites_string = f.read()  # MDomain site1 site2 site3 ...
+
+    sslsites = sslsites_string.split()
+    sslsites.pop(0)  # drop the MDomain statement
+
+    return sslsites
+
+def _put_sslsites(sites: List[str]):
+    sslsites_string = f"MDomain {' '.join(sites)}\n"
+    p = Path(SSL_SITES_FILE)
+    with open(p, "wt") as f:
+        f.write(sslsites_string)
+
+    return
+
+def create_sslsite(hostname: str):
+    sites = _get_sslsites()
+    sites = sorted(sites.append(hostname))
+    _put_sslsites(sites)
+
+    siteconf = """
+# cat /etc/apache2/sites-available/learn.snackbag.net.conf
+#   PyApp $host             $title      $appdir             $unixuser  $unixgroup
+Use PyApp {hostname} {project} {projectdir}/{project} {unixuser} {unixuser}
+
+# vim: syntax=apache ts=4 sw=4 sts=4 sr noet"""
+    p = f"{hostname}.conf"
+    with open(p, "wt") as f:
+        f.write(siteconf)
+
+    return
+
+def get_opts():
+    """ Parse the program options using ArgumentParser.
+        The collected arguments are left in a global variable args.
+    """
+    global args
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("operation", type=operation, help="code or deploy, logs, show, create, delete")
+    parser.add_argument("project", help="a valid project name")
+
+    parser.add_argument("--hostname", help="hostname (in create)")
+    parser.add_argument("--unixuser", help="unixuser (in create)")
+    parser.add_argument("--projectdir", help="projectdir (in create)")
+
+    parser.add_argument("--log-cmd", help="command to run after checkout (in logs, optional)")
+
+    args = parser.parse_args()
+
+
+def main():
+    # Check valid user, and grab the call options
+    user = can_do()
+    get_opts()
+
+    # operation is one of the things in VALID_OPERATIONS
+    if args.operation == "create":
+        pass
+    elif args.operation == "delete":
+        pass
+    elif args.operation == "show":
+        pass
+    else:
+        raise ValueError(f"This can never happen: {args.operation=}")
+
+
+if __name__ == "__main__":
+    main()
