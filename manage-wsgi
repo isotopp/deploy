@@ -2,15 +2,16 @@
 
 import argparse
 import getpass
-import grp
 import json
 import os
 import pwd
 import re
 import shutil
 import subprocess
+import sys
+import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 VALID_USERS = ["kris", "joram"]
 VALID_OPERATIONS = ["create", "delete", "show"]
@@ -116,10 +117,10 @@ def create_user(username: str, homedir: Optional[str] = None, comment: Optional[
         If `exist_ok == True`, it is okay for the user to exist, but a ValueError will be raised, if `homedir`
         or `comment` do not match.
     """
-    USERNAME_REGEX = r"[a-z_][a-z0-9_]{1,10}"
-    m = re.fullmatch(USERNAME_REGEX, username)
+    username_regex = r"[a-z_][a-z0-9_]{1,10}"
+    m = re.fullmatch(username_regex, username)
     if m is None:
-        raise ValueError(f"username '{username}' does not match '{USERNAME_REGEX}'")
+        raise ValueError(f"username '{username}' does not match '{username_regex}'")
 
     if homedir is None:
         homedir = f"/home/{username}"
@@ -127,7 +128,7 @@ def create_user(username: str, homedir: Optional[str] = None, comment: Optional[
     if comment is None:
         comment = f"Managed WSGI Application {username}"
 
-    if validate_user(username, homedir, comment):
+    if validate_user(username, homedir, comment) and exist_ok:
         # user exists and is correct
         return
 
@@ -144,7 +145,7 @@ def _create_dotsshdir(homedir: Path):
         The ownership for this directory is not set properly.
     """
     sshdir = homedir / ".ssh"
-    sshdir.mkdir(0700, parents=True, exist_ok=True)
+    sshdir.mkdir(0o700, parents=True, exist_ok=True)
 
     return
 
@@ -185,7 +186,6 @@ def create_deploykey(username: str) -> str:
 
 
 def create_deploy_description(project: str,
-                              repo: str,
                               hostname: Optional[str] = None,
                               unixuser: Optional[str] = None,
                               projectdir: Optional[str] = None,
@@ -252,6 +252,7 @@ def create_deploy_description(project: str,
     return
 
 
+# TODO
 def _get_sslsites() -> List[str]:
     p = Path(SSL_SITES_FILE)
     with open(p, "rt") as f:
@@ -262,6 +263,8 @@ def _get_sslsites() -> List[str]:
 
     return sslsites
 
+
+# TODO
 def _put_sslsites(sites: List[str]):
     sslsites_string = f"MDomain {' '.join(sites)}\n"
     p = Path(SSL_SITES_FILE)
@@ -270,9 +273,11 @@ def _put_sslsites(sites: List[str]):
 
     return
 
+# TODO
 def create_sslsite(hostname: str):
     sites = _get_sslsites()
-    sites = sorted(sites.append(hostname))
+    sites.append(hostname)
+    sites = sorted(sites)
     _put_sslsites(sites)
 
     siteconf = """
@@ -284,6 +289,39 @@ Use PyApp {hostname} {project} {projectdir}/{project} {unixuser} {unixuser}
     p = f"{hostname}.conf"
     with open(p, "wt") as f:
         f.write(siteconf)
+
+    return
+
+# TODO
+def run_a2ensite(hostname: str):
+    a2ensite_cmd = f"/usr/sbin/a2ensite {hostname}"
+    a2ensite_result = subprocess.run(a2ensite_cmd, shell=True, capture_output=True, timeout=30)
+    show_run_result(a2ensite_result)
+
+    return
+
+
+# TODO
+def apache_double_reload():
+    stop_cmd = "systemctl stop apache2.service"
+    start_cmd = "systemctl start apache2.service"
+    for i in range(0, 2):
+        subprocess.run(stop_cmd, timeout=30)
+        time.sleep(1)
+        subprocess.run(start_cmd, timeout=30)
+        time.sleep(1)
+
+    return
+
+
+# TODO
+def initial_checkout(target_dir: str, repo: str, username: str):
+    git_cmd = f"git checkout {repo}"
+
+    os.chdir(target_dir)
+    subprocess.run(git_cmd, timeout=30)
+
+    chown_tree(repo, username, username)
 
     return
 
