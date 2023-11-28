@@ -1,0 +1,205 @@
+#! /usr/bin/env python3
+import argparse
+import textwrap
+from pathlib import Path
+
+
+def create_base_html(app_name: Path):
+    content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>{app_name}</title>
+        </head>
+        <body>
+            <div id="content">
+                {{%block content %}}{{%endblock %}}
+            </div>
+        </body>
+        </html>
+    """
+    p = app_name / app_name / "templates" / "base.html"
+    p.write_text(textwrap.dedent(content).lstrip())
+
+
+def create_hello_world_html(app_name: Path):
+    content = """
+        {% extends "base.html" %}
+
+        {% block content %}
+            <h1>Hello World!</h1>
+        {% endblock %}
+    """
+    p = app_name / app_name / "templates" / "hello_world.html"
+    p.write_text(textwrap.dedent(content).lstrip())
+
+
+def create_templates(app_name: Path):
+    create_base_html(app_name)
+    create_hello_world_html(app_name)
+
+
+def create_views(app_name: Path):
+    content = """
+        from flask import render_template
+        
+        def hello_world():
+            return render_template('hello_world.html')
+    """
+    p = app_name / app_name / "views.py"
+    p.write_text(textwrap.dedent(content).lstrip())
+
+
+def create_models(app_name: Path):
+    p = app_name / app_name / "models.py"
+    p.touch()
+
+
+def create_forms(app_name: Path):
+    p = app_name / app_name / "forms.py"
+    p.touch()
+
+
+def create_init(app_name: Path):
+    content = """
+        from pathlib import Path
+        from flask import Flask
+        from .views import hello_world
+
+        def create_app(test_config=None):
+            # create and configure the app
+            app = Flask(__name__, instance_relative_config=True)
+            app.config.from_mapping(
+                SECRET_KEY='dev',
+                #USERBASE=Path(app.instance_path) / "user",
+            )
+        
+            if test_config is None:
+                # load the instance config, if it exists, when not testing
+                app.config.from_pyfile(
+                    Path(app.instance_path) / 'config.py', 
+                    silent=True
+                )
+            else:
+                # load the test config if passed in
+                app.config.from_mapping(test_config)
+        
+            # ensure the instance folder exists
+            Path(app.instance_path).mkdir(parents=True, exist_ok=True)
+            #Path(app.config["USERBASE"]).mkdir(parents=True, exist_ok=True)
+        
+            # Routes
+            app.add_url_rule('/', 'hello_world', hello_world)
+        
+            return app
+        """
+    p = app_name / app_name / "__init__.py"
+    p.write_text(textwrap.dedent(content).lstrip())
+
+
+def create_requirements(app_name: Path):
+    content = """
+        flask
+    """
+    p = app_name / "requirements.txt"
+    p.write_text(textwrap.dedent(content).lstrip())
+
+
+def create_setup_cfg(app_name: Path):
+    content = f"""
+        [metadata]
+        name = {app_name}
+        version = 0.1.0
+        description = Flask-Projekt {app_name}
+        long_description = file: README.md
+        long_description_content_type = text/markdown
+        url = https://github.com/vijfhuizen-c0derz/{app_name}
+
+        [options]
+        packages = find:
+        install_requires =
+            Flask
+
+        [options.extras_require]
+        test =
+            pytest
+            coverage
+        
+        [options.packages.find]
+        exclude =
+            tests*
+        
+        [tool:pytest]
+        testpaths = tests
+        
+        [flake8]
+        max-line-length = 88
+        extend-ignore = E203, W503
+    """
+    p = app_name / "setup.cfg"
+    p.write_text(textwrap.dedent(content).lstrip())
+
+
+def create_app_py(app_name: Path):
+    content = f"""
+        #! /usr/bin/env python3
+        
+        from {app_name} import create_app
+        
+        app = create_app()
+    """
+    p = app_name / "app.py"
+    p.write_text(textwrap.dedent(content).lstrip())
+
+
+def create_app_wsgi(app_name: Path):
+    content = f"""
+        #! /usr/bin/env python3
+
+        import sys
+        sys.path.insert(0, "/home/loginsystem/login-system")
+        from app import app as application
+    """
+    p = app_name / "app.wsgi"
+    p.write_text(textwrap.dedent(content).lstrip())
+
+
+def create_flask_app(app_name: Path):
+    # Grundstruktur der Verzeichnisse
+    directories = [
+        app_name,
+        app_name / app_name,
+        app_name / app_name / "templates",
+        app_name / app_name / "static",
+        app_name / "instance"
+    ]
+
+    # Verzeichnisse erstellen und Platzhalter README.md in jedem Verzeichnis anlegen
+    for directory in directories:
+        directory.mkdir(parents=True, exist_ok=True)
+        p = directory / "README.md"
+        p.write_text(f"# {app_name} - {directory.name}")
+
+    create_app_py(app_name)
+    create_app_wsgi(app_name)
+    create_init(app_name)
+    create_views(app_name)
+    create_models(app_name)
+    create_forms(app_name)
+    create_templates(app_name)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Erstelle ein Grundgerüst für eine Flask-WSGI-Anwendung.")
+    parser.add_argument("app_name", help="Der Name der zu erstellenden Flask-Anwendung")
+    args = parser.parse_args()
+
+    app_name = Path(args.app_name)
+    create_flask_app(app_name)
+    create_requirements(app_name)
+    create_setup_cfg(app_name)
+    print(f"Flask-Anwendung {args.app_name} wurde erstellt.")
+
+
+if __name__ == "__main__":
+    main()
