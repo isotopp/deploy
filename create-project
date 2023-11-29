@@ -2,10 +2,12 @@
 import argparse
 import textwrap
 from pathlib import Path
+from typing import Callable
 
 
-def create_base_html(app_name: Path):
-    content = f"""
+def create_base_html(app_name: str):
+    """ Content function """
+    return f"""
         <!DOCTYPE html>
         <html>
         <head>
@@ -18,50 +20,49 @@ def create_base_html(app_name: Path):
         </body>
         </html>
     """
-    p = app_name / app_name / "templates" / "base.html"
-    p.write_text(textwrap.dedent(content).lstrip())
 
 
-def create_hello_world_html(app_name: Path):
-    content = """
+def create_hello_world_html(app_name: str):
+    """ Content function """
+    return """
         {% extends "base.html" %}
 
         {% block content %}
             <h1>Hello World!</h1>
         {% endblock %}
     """
-    p = app_name / app_name / "templates" / "hello_world.html"
-    p.write_text(textwrap.dedent(content).lstrip())
 
 
-def create_templates(app_name: Path):
-    create_base_html(app_name)
-    create_hello_world_html(app_name)
-
-
-def create_views(app_name: Path):
-    content = """
+def create_views(app_name: str):
+    """ Content function """
+    return """
         from flask import render_template
+        
         
         def hello_world():
             return render_template('hello_world.html')
     """
-    p = app_name / app_name / "views.py"
-    p.write_text(textwrap.dedent(content).lstrip())
 
 
-def create_models(app_name: Path):
-    p = app_name / app_name / "models.py"
-    p.touch()
+def create_models(app_name: str):
+    """ Content function """
+    return """
+    if __name__ == "__main__":
+        1
+    """
 
 
-def create_forms(app_name: Path):
-    p = app_name / app_name / "forms.py"
-    p.touch()
+def create_forms(app_name: str):
+    """ Content function """
+    return """
+    if __name__ == "__main__":
+        1
+    """
 
 
 def create_init(app_name: Path):
-    content = """
+    """ Content function """
+    return """
         from pathlib import Path
         from flask import Flask
         from .views import hello_world
@@ -93,20 +94,18 @@ def create_init(app_name: Path):
         
             return app
         """
-    p = app_name / app_name / "__init__.py"
-    p.write_text(textwrap.dedent(content).lstrip())
 
 
 def create_requirements(app_name: Path):
-    content = """
+    """ Content function """
+    return """
         flask
     """
-    p = app_name / "requirements.txt"
-    p.write_text(textwrap.dedent(content).lstrip())
 
 
 def create_setup_cfg(app_name: Path):
-    content = f"""
+    """ Content function """
+    return f"""
         [metadata]
         name = {app_name}
         version = 0.1.0
@@ -118,7 +117,7 @@ def create_setup_cfg(app_name: Path):
         [options]
         packages = find:
         install_requires =
-            Flask
+            flask
 
         [options.extras_require]
         test =
@@ -136,57 +135,86 @@ def create_setup_cfg(app_name: Path):
         max-line-length = 88
         extend-ignore = E203, W503
     """
-    p = app_name / "setup.cfg"
-    p.write_text(textwrap.dedent(content).lstrip())
 
 
 def create_app_py(app_name: Path):
-    content = f"""
+    """ Content function """
+    return f"""
         #! /usr/bin/env python3
         
         from {app_name} import create_app
         
         app = create_app()
     """
-    p = app_name / "app.py"
-    p.write_text(textwrap.dedent(content).lstrip())
 
 
 def create_app_wsgi(app_name: Path):
-    content = f"""
+    """ Content function """
+    return f"""
         #! /usr/bin/env python3
 
         import sys
-        sys.path.insert(0, "/home/loginsystem/login-system")
+        sys.path.insert(0, "/home/{app_name}/{app_name}")
         from app import app as application
     """
-    p = app_name / "app.wsgi"
-    p.write_text(textwrap.dedent(content).lstrip())
 
 
-def create_flask_app(app_name: Path):
-    # Grundstruktur der Verzeichnisse
-    directories = [
-        app_name,
-        app_name / app_name,
-        app_name / app_name / "templates",
-        app_name / app_name / "static",
-        app_name / "instance"
+def make_dir(template_path: str):
+    """ Return a function that creates a directory `template_path` """
+
+    def create_dir(app_name: str):
+        path = template_path.replace("__app__", app_name)
+        Path(path).mkdir(parents=True, exist_ok=True)
+
+    return create_dir
+
+
+def make_file(template_path: str, content_func: Callable):
+    """ Return a function that creates a file `template_path`.
+        The actual content is provided by the `content_func`
+    """
+
+    def create_file(app_name: str):
+        path = template_path.replace("__app__", app_name)
+
+        # get the content, dedent it, and delete the leading empty line
+        content = content_func(app_name)
+        content = textwrap.dedent(content)
+        content = content.lstrip()
+
+        # Write it out
+        Path(path).write_text(content)
+
+    return create_file
+
+
+def create_flask_app(app_name: str):
+    """ Create the directury structure and file scaffolding for a Flask-application.
+    """
+
+    # Filesystem layout: directories and files.
+    structure = [
+        make_dir("__app__"),
+        make_dir("__app__/__app__"),
+        make_dir("__app__/__app__/templates"),
+        make_dir("__app__/__app__/static"),
+        make_dir("__app__/instance"),
+
+        make_file("__app__/__app__/templates/base.html", create_base_html),
+        make_file("__app__/__app__/templates/hello_world.html", create_hello_world_html),
+        make_file("__app__/__app__/views.py", create_views),
+        make_file("__app__/__app__/models.py", create_models),
+        make_file("__app__/__app__/forms.py", create_forms),
+        make_file("__app__/__app__/__init__.py", create_init),
+        make_file("__app__/requirements.txt", create_requirements),
+        make_file("__app__/setup.cfg", create_setup_cfg),
+        make_file("__app__/app.py", create_app_py),
+        make_file("__app__/app.wsgi", create_app_wsgi),
     ]
 
-    # Verzeichnisse erstellen und Platzhalter README.md in jedem Verzeichnis anlegen
-    for directory in directories:
-        directory.mkdir(parents=True, exist_ok=True)
-        p = directory / "README.md"
-        p.write_text(f"# {app_name} - {directory.name}")
-
-    create_app_py(app_name)
-    create_app_wsgi(app_name)
-    create_init(app_name)
-    create_views(app_name)
-    create_models(app_name)
-    create_forms(app_name)
-    create_templates(app_name)
+    # Actualluy creating the structure
+    for func in structure:
+        func(app_name)
 
 
 def main():
@@ -194,10 +222,7 @@ def main():
     parser.add_argument("app_name", help="Der Name der zu erstellenden Flask-Anwendung")
     args = parser.parse_args()
 
-    app_name = Path(args.app_name)
-    create_flask_app(app_name)
-    create_requirements(app_name)
-    create_setup_cfg(app_name)
+    create_flask_app(args.app_name)
     print(f"Flask-Anwendung {args.app_name} wurde erstellt.")
 
 
