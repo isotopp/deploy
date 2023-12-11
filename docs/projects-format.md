@@ -51,8 +51,9 @@ The values for the following variables are not specified in the project file and
 ## Creation Flow
 
 Invariants:
+
 - hostname must not exist.
-- Implied values must not be specified 
+- Implied values must not be specified
   (projectdir, username, userid, update_cmd, log_cmd and restart_cmd).
 
 0. Create `/etc/projects` entry.
@@ -61,6 +62,8 @@ Invariants:
 3. Double `apache_restart`, livecheck.
 
 # Create a WSGI site
+
+## JSON
 
 Attributes:
 
@@ -99,6 +102,7 @@ Both files have to readable for the `deploy` program.
 ## Creation Flow
 
 Invariants:
+
 - hostname must not exist.
 - userid must not exist.
 - username must not exist.
@@ -117,29 +121,71 @@ Also, the deploykey must be set for the github repository in order for the initi
 9. Erzeugen der `/etc/httpd/conf.sites.d/<hostname>`.
 10. Double restart_apache
 
+# Create a Discord Bot
 
-{
-  type: "static_site"|"wsgi_site"|"discord_bot",
-   hostname: "learn.snackbag.net",
-   userid: 1003,
-   username: learn,
-   project: "learn",
-   github: "git@github.com:vijfhuizen-c0derz/link-system.git"
-   deploykey: /home/kris/.ssh/deploykey
-   log_cmd: "tail -F"
-   restart_cmd: sudo apache_restart"
-   update_cmd: sudo pip_and_pull
-}
+## JSON
 
+Attributes:
 
-## Create a Discort Bot
+`type: discord_bot`
+: The type `discord_bot` sets this project type as a Python project implementing a discord bot.
 
-type: discord_bot
-hostname: ...
-userid: ...
-username: mradmin
-project: MrAdmin
+`hoststname: <hostname>.snackbag.net`
+: The value of the `hostname` attribute determines the domain name, under which the site will be online.
+The domain name has to end with `.snackbag.net`.
 
-update_cmd: pip_and_pull
-restart_cmd: restart_service mradmin
-log_cmd: sudo grep mradmin /var/log/syslog (log config für den Dienst umbauen?)
+`github: "git@github.com:...`
+: The URL that holds the content for the site.
+It has to start with `git@github.com:`
+
+`deploykey: /pathname`
+: The path to a `ssh` deploy keypair.
+The name refers to the private key.
+The public key must be in the same directory, with the same name + `.pub`.
+Both files have to readable for the `deploy` program.
+
+`username` and `userid`:
+: The `username` under which the project runs.
+
+`projectdir`:
+: Subdirectory in the users home, so `/home/<username>/<projectdir>`.
+
+`update_cmd`:
+: Usually `/usr/local/bin/pip_and_pull`.
+
+`log_cmd`:
+: A tail on the bots syslog file (based on <unixuser>).
+
+`restart_cmd`:
+: Usually `/usr/bin/systemctl stop/start <projectdir>.service`.
+
+## Creation Flow
+
+0. Create `/etc/projects` file.
+1. `useradd -u <userid> -m -c "<projectdir> Webserver" <username>
+2. `passwd -l <username>`
+3. `mkdir /home/<username>/.ssh` + user + permissions
+4. `su -l -c "ssh-keygen -t rsa -b 4096 -N "" -f /home/<username>/.ssh/id_deploykey - <username>`
+5. Deploykey anzeigen + Bestätigung abwarten (github update)
+6. `su -l -c "git clone <github> /home/<username>/<project> - <username>`
+7. Create `/home/<username>/<projectdir>/.env`.
+7. Create a `/etc/systemd/system/mradmin.service`.
+8. `systemctl daemon-reload`, `enable` and `start`.
+
+## Service Template
+
+[Unit]
+Description=<projectdir>
+After=syslog.target network.target
+
+[Service]
+Type=simple
+User=<username>
+Group=<username>
+WorkingDirectory=/home/<username>/<projectdir>
+ExecStart=/home/<username>/<projectdir>/venv/bin/python3 /home/<username>/<projectdir>/main.py
+Restart=always
+EnvironmentFile=/home/<username>/<projectdir>/.env
+
+[Install]
+WantedBy=multi-user.target
