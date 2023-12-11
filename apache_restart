@@ -1,11 +1,11 @@
 #! /usr/bin/env python3
 
 import json
-import os
 import socket
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 START_CMD = "/usr/bin/systemctl start httpd.service"
 STOP_CMD = "/usr/bin/systemctl stop httpd.service"
@@ -50,8 +50,8 @@ def restart_apache():
 
 def collect_hostnames(directory):
     hostnames = []
-    for filename in os.listdir(directory):
-        with open(os.path.join(directory, filename), 'r') as file:
+    for filename in Path(directory).glob("*"):
+        with open(filename, 'r') as file:
             try:
                 data = json.load(file)
                 if 'hostname' in data:
