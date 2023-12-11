@@ -22,8 +22,9 @@ def run(cmd: str, show=False):
     stderr = result.stderr.decode('utf-8')
 
     if code == 0:
-        print("*** SUCCESS:")
+        print(".", end="", flush=True)
         if show:
+            print()
             print(f"***STDOUT: {stdout}")
         return
 
