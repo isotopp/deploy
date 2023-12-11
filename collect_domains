@@ -28,7 +28,7 @@ def main():
     with open('/etc/httpd/conf.d/ssldomain.conf', 'w') as file:
         file.write(f"Servername {socket.getfqdn()}\n")
         file.write("MDCertificateAgreement accepted\n")
-        file.write("MDPrivateKeys RSA 4096")
+        file.write("MDPrivateKeys RSA 4096\n")
         file.write("MDomain " + " ".join(hostnames) + "\n")
 
 
