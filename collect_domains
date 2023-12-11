@@ -3,7 +3,48 @@
 import json
 import os
 import socket
+import subprocess
 import sys
+import time
+
+START_CMD = "/usr/bin/systemctl start apache2.service"
+STOP_CMD = "/usr/bin/systemctl stop apache2.service"
+STATUS_CMD = "/usr/bin/systemctl status apache2.service"
+
+
+def run(cmd: str, show=False):
+    """ Run a command, successfully.
+    """
+    result = subprocess.run(cmd, shell=True, capture_output=True, timeout=30)
+
+    code = result.returncode
+    stdout = result.stdout.decode('utf-8')
+    stderr = result.stderr.decode('utf-8')
+
+    if code == 0:
+        print("*** SUCCESS:")
+        if show:
+            print(f"***STDOUT: {stdout}")
+        return
+
+    print(f"*** CMD: {cmd}")
+    print(f"*** ERROR: exit code={result.returncode}")
+    if stdout:
+        print(f"*** STDOUT: {stdout}")
+    if stderr:
+        print(f"*** STDERR: {stderr}")
+
+    raise (OSError(f"Error {code} while running {cmd}"))
+
+
+def restart_apache():
+    """ Restart the apache daemon, twice (for mod_md) """
+    for _ in [1, 2]:
+        run(STOP_CMD)
+        time.sleep(0.5)
+        run(START_CMD)
+        time.sleep(0.5)
+    run(STATUS_CMD, show=True)
 
 
 def collect_hostnames(directory):
@@ -30,6 +71,8 @@ def main():
         file.write("MDCertificateAgreement accepted\n")
         file.write("MDPrivateKeys RSA 4096\n")
         file.write("MDomain " + " ".join(hostnames) + "\n")
+
+    restart_apache()
 
 
 if __name__ == "__main__":

@@ -17,13 +17,6 @@ VALID_USERS = ["kris", "joram"]
 VALID_OPERATIONS = ["create", "delete", "show"]
 PROJECT_DIR = Path("/etc/projects")
 
-SSL_SITES_FILE = "/etc/apache2/sites-available/000-ssldomain.conf"
-SITES_DIR = "/etc/apache2/sites-available"
-
-CHECKOUT_CMD = "/usr/bin/git pull --rebase"
-RESTART_CMD = "sudo apache_restart"
-LOG_CMD = "tail -F "
-
 args: argparse.Namespace
 
 
