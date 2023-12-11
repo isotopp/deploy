@@ -7,9 +7,9 @@ import subprocess
 import sys
 import time
 
-START_CMD = "/usr/bin/systemctl start apache2.service"
-STOP_CMD = "/usr/bin/systemctl stop apache2.service"
-STATUS_CMD = "/usr/bin/systemctl status apache2.service"
+START_CMD = "/usr/bin/systemctl start httpd.service"
+STOP_CMD = "/usr/bin/systemctl stop httpd.service"
+STATUS_CMD = "/usr/bin/systemctl status httpd.service"
 
 
 def run(cmd: str, show=False):
