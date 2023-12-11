@@ -20,7 +20,7 @@ Attributes:
 `type: static_site`
 : The type `static_site` sets this project type as a static site.
 
-`hoststname: <hostname>.snackbag.net`
+`hostname: <hostname>.snackbag.net`
 : The value of the `hostname` attribute determines the domain name, under which the site will be online.
 The domain name has to end with `.snackbag.net`.
 
@@ -70,7 +70,7 @@ Attributes:
 `type: wsgi_site`
 : The type `wsgi_site` sets this project type as a Python project using a WSGI container.
 
-`hoststname: <hostname>.snackbag.net`
+`hostname: <hostname>.snackbag.net`
 : The value of the `hostname` attribute determines the domain name, under which the site will be online.
 The domain name has to end with `.snackbag.net`.
 
@@ -130,7 +130,7 @@ Attributes:
 `type: discord_bot`
 : The type `discord_bot` sets this project type as a Python project implementing a discord bot.
 
-`hoststname: <hostname>.snackbag.net`
+`hostname: <hostname>.snackbag.net`
 : The value of the `hostname` attribute determines the domain name, under which the site will be online.
 The domain name has to end with `.snackbag.net`.
 
@@ -189,3 +189,25 @@ EnvironmentFile=/home/<username>/<projectdir>/.env
 
 [Install]
 WantedBy=multi-user.target
+
+
+# Command
+
+manage_project [operation] [project]
+
+operation := show, create, delete
+project := project name
+
+create: flags für
+  --type=static_site,wsgi_site,discord_bot
+  --hostname=....snackbag.net
+  --github=git@github:...
+  --deploykey=path
+  --username=str
+  --projectdir=pathname_component
+
+delete:
+
+show:
+  projects -- alle projekte
+  <project> -- ein Projekt, alle Parameter

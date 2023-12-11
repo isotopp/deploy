@@ -9,12 +9,12 @@ import re
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional
 
 VALID_USERS = ["kris", "joram"]
 VALID_OPERATIONS = ["create", "delete", "show"]
+VALID_PROJECT_TYPES = ["static_site", "wsgi_site", "discord_bot"]
 PROJECT_DIR = Path("/etc/projects")
 
 args: argparse.Namespace
@@ -38,7 +38,7 @@ def chown_tree(start: Path, username: str, groupname: str, topdown=True):
     shutil.chown(start, username, groupname)
 
 
-def can_do() -> str:
+def valid_caller() -> str:
     """ Deployments can be done by one of the users listed in VALID USERS.
         We raise a ValueError if we are being run by somebody else.
     """
@@ -49,6 +49,14 @@ def can_do() -> str:
     raise ValueError(f"invalid user {user}, valid users are: {VALID_USERS}")
 
 
+def project_type(the_type: str) -> str:
+    """ ArgumentParser validator for project types. """
+    if the_type in VALID_PROJECT_TYPES:
+        return the_type
+
+    raise ValueError(f"invalid project type {the_type}, valid types are {VALID_PROJECT_TYPES}")
+
+
 def operation(the_op: str) -> str:
     """ ArgumentParser validator for the positional parameter operation.
         Valid operations are in VALID_OPERATIONS.
@@ -57,7 +65,7 @@ def operation(the_op: str) -> str:
     if the_op in VALID_OPERATIONS:
         return the_op
 
-    raise ValueError
+    raise ValueError(f"invalid operation {the_op}, valid operatios are {VALID_OPERATIONS}")
 
 
 def show_run_result(result: subprocess.CompletedProcess):
@@ -78,29 +86,7 @@ def show_run_result(result: subprocess.CompletedProcess):
         print(stderr)
 
 
-def validate_user(username: str, homedir: str, comment: str) -> bool:
-    """ Check if a user exists, True if so, False otherwise.
-
-        Raises a ValueError exception if the user exists, but homedir
-        and comment do not match expectations.
-    """
-    exists = True
-    try:
-        userdata = pwd.getpwnam(username)
-    except KeyError as e:
-        return False
-
-    # exists must be true
-    if homedir != userdata.pw_dir:
-        raise ValueError(f"homedir '{userdata.pw_dir}', expected '{homedir}'")
-
-    if comment != userdata.pw_gecos:
-        raise ValueError(f"homedir '{userdata.pw_gecos}', expected '{comment}'")
-
-    return exists
-
-
-def create_user(username: str, homedir: Optional[str] = None, comment: Optional[str] = None, exist_ok: bool = False):
+def create_user(username: str, homedir: Optional[str] = None, comment: Optional[str] = None):
     """ Create a new user `username`.
 
         The User will have the homedir `/home/<username>` unless a different `homedir` is specified.
@@ -120,10 +106,6 @@ def create_user(username: str, homedir: Optional[str] = None, comment: Optional[
 
     if comment is None:
         comment = f"Managed WSGI Application {username}"
-
-    if validate_user(username, homedir, comment) and exist_ok:
-        # user exists and is correct
-        return
 
     # user must be created
     useradd_cmd = f"/usr/sbin/useradd -d {homedir} -c {comment} {username}"
@@ -159,21 +141,6 @@ def _create_sshkey(homedir: Path) -> str:
     pubkeyfilename = f"{homedir}/.ssh/id_rsa.pub"
     with open(pubkeyfilename, "rt") as f:
         pubkey = f.read()
-
-    return pubkey
-
-
-def create_deploykey(username: str) -> str:
-    """ Create a .ssh directory and ssh keypair, sets ownership and permissions correctly.
-        Returns the pubkey part of the generated keypair.
-    """
-    user = pwd.getpwnam(username)
-    homedir = Path(user.pw_dir)
-
-    _create_dotsshdir(homedir)
-    pubkey = _create_sshkey(homedir)
-
-    chown_tree(homedir, username, username)
 
     return pubkey
 
@@ -245,80 +212,38 @@ def create_deploy_description(project: str,
     return
 
 
-# TODO
-def _get_sslsites() -> List[str]:
-    p = Path(SSL_SITES_FILE)
-    with open(p, "rt") as f:
-        sslsites_string = f.read()  # MDomain site1 site2 site3 ...
-
-    sslsites = sslsites_string.split()
-    sslsites.pop(0)  # drop the MDomain statement
-
-    return sslsites
+def check_username_exists(username: str) -> bool:
+    try:
+        pwd.getpwnam(username)
+        return True
+    except KeyError:
+        return False
 
 
-# TODO
-def _put_sslsites(sites: List[str]):
-    sslsites_string = f"MDomain {' '.join(sites)}\n"
-    p = Path(SSL_SITES_FILE)
-    with open(p, "wt") as f:
-        f.write(sslsites_string)
+def check_hostname_valid(hostname: str) -> bool:
+    if hostname.endswith(".snackbag.net"):
+        return True
 
-    return
+    return False
 
 
-# TODO
-def create_sslsite(hostname: str):
-    sites = _get_sslsites()
-    sites.append(hostname)
-    sites = sorted(sites)
-    _put_sslsites(sites)
+def check_github_valid(github: str) -> bool:
+    if github.startswith("git@github.com:"):
+        return True
 
-    siteconf = """
-# cat /etc/apache2/sites-available/learn.snackbag.net.conf
-#   PyApp $host             $title      $appdir             $unixuser  $unixgroup
-Use PyApp {hostname} {project} {projectdir}/{project} {unixuser} {unixuser}
-
-# vim: syntax=apache ts=4 sw=4 sts=4 sr noet"""
-    p = f"{hostname}.conf"
-    with open(p, "wt") as f:
-        f.write(siteconf)
-
-    return
+    return False
 
 
-# TODO
-def run_a2ensite(hostname: str):
-    a2ensite_cmd = f"/usr/sbin/a2ensite {hostname}"
-    a2ensite_result = subprocess.run(a2ensite_cmd, shell=True, capture_output=True, timeout=30)
-    show_run_result(a2ensite_result)
-
-    return
+def get_update_cmd():
+    return "update_cmd"  # TODO
 
 
-# TODO
-def apache_double_reload():
-    stop_cmd = "systemctl stop apache2.service"
-    start_cmd = "systemctl start apache2.service"
-    for i in range(0, 2):
-        subprocess.run(stop_cmd, timeout=30)
-        time.sleep(1)
-        subprocess.run(start_cmd, timeout=30)
-        time.sleep(1)
-
-    return
+def get_restart_cmd():
+    return "restart_cmd"  # TODO
 
 
-# TODO
-def initial_checkout(target_dir: str, repo: Path, username: str):
-    git_cmd = f"git checkout {repo}"
-
-    os.chdir(target_dir)
-    subprocess.run(git_cmd, timeout=30)
-
-    chown_tree(repo, username, username)
-
-    return
+def get_log_cmd():
+    return "log_cmd"  # TODO
 
 
 def get_opts():
@@ -331,27 +256,51 @@ def get_opts():
     parser.add_argument("operation", type=operation, help="code or deploy, logs, show, create, delete")
     parser.add_argument("project", help="a valid project name")
 
-    parser.add_argument("--hostname", help="hostname (in create)")
-    parser.add_argument("--unixuser", help="unixuser (in create)")
-    parser.add_argument("--projectdir", help="projectdir (in create)")
-
-    parser.add_argument("--log-cmd", help="command to run after checkout (in logs, optional)")
+    parser.add_argument("--type", type=project_type, help="one of static_site, wsgi_site or discord_bot")
+    parser.add_argument("--hostname", help="hostname ending in .snackbag.net (in create)")
+    parser.add_argument("--github", help="git@github.com:...")
+    parser.add_argument("--deploykey", help="pathname of a deploykey (private key part)")
+    parser.add_argument("--username", help="a unix username to be created (in create)")
+    parser.add_argument("--projectdir", help="a subdirectory name in that users home (in create)")
 
     args = parser.parse_args()
 
 
+def validate_opts():
+    global args
+
+    if check_username_exists(args.username):
+        raise ValueError(f"username {args.username} already exists")
+
+    user = pwd.getpwnam(args.username)
+    args.userid = user.pw_uid
+
+    if not check_hostname_valid(args.hostname):
+        raise ValueError(f"hostname {args.hostname} does not end in '.snackbag.net'")
+
+    if not check_github_valid(args.github):
+        raise ValueError(f"github {args.github} is not a valid github url 'git@github.com:...")
+
+    args.update_cmd = get_update_cmd()
+    args.restart_cnd = get_restart_cmd()
+    args.log_cmd = get_log_cmd()
+
+    return
+
+
 def main():
     # Check valid user, and grab the call options
-    user = can_do()
+    user = valid_caller()
     get_opts()
+    validate_opts()
 
     # operation is one of the things in VALID_OPERATIONS
     if args.operation == "create":
-        pass
+        print(f"create {args}")
     elif args.operation == "delete":
-        pass
+        print(f"delete: {args}")
     elif args.operation == "show":
-        pass
+        print(f"show: {args}")
     else:
         raise ValueError(f"This can never happen: {args.operation=}")
 
