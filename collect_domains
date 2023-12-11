@@ -26,7 +26,10 @@ def main():
     hostnames = [socket.getfqdn()] + collect_hostnames(directory)
 
     with open('/etc/httpd/conf.d/ssldomain.conf', 'w') as file:
-        file.write('MDomain ' + ' '.join(hostnames))
+        file.write(f"Servername {socket.getfqdn()}\n")
+        file.write("MDCertificateAgreement accepted\n")
+        file.write("MDPrivateKeys RSA 4096")
+        file.write("MDomain " + " ".join(hostnames))
 
 
 if __name__ == "__main__":
