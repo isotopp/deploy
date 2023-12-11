@@ -1,0 +1,6 @@
+#! /bin/bash
+
+mysqldump --skip-extended-insert --routines --triggers --single-transaction --all-databases |
+  gzip -9 > /home/steam/minecraft/database.sql.gz
+tar -C / -czf -  home /var/www /etc
+
