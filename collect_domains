@@ -1,0 +1,32 @@
+#! /usr/bin/env python3
+
+import json
+import os
+import sys
+
+
+def collect_hostnames(directory):
+    hostnames = []
+    for filename in os.listdir(directory):
+        with open(os.path.join(directory, filename), 'r') as file:
+            try:
+                data = json.load(file)
+                if 'hostname' in data:
+                    hostnames.append(data['hostname'])
+                else:
+                    print(f"Warning: {filename} contains no hostname.", file=sys.stderr)
+            except json.JSONDecodeError:
+                print(f"Warning: Failed to parse {filename} as JSON.", file=sys.stderr)
+    return hostnames
+
+
+def main():
+    directory = '/etc/projects/'
+    hostnames = collect_hostnames(directory)
+
+    with open('/etc/httpd/conf.d/ssldomain.conf', 'w') as file:
+        file.write('MDomain ' + ' '.join(hostnames))
+
+
+if __name__ == "__main__":
+    main()
