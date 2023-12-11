@@ -29,7 +29,7 @@ def main():
         file.write(f"Servername {socket.getfqdn()}\n")
         file.write("MDCertificateAgreement accepted\n")
         file.write("MDPrivateKeys RSA 4096")
-        file.write("MDomain " + " ".join(hostnames))
+        file.write("MDomain " + " ".join(hostnames) + "\n")
 
 
 if __name__ == "__main__":
