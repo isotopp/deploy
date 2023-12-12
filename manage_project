@@ -38,7 +38,6 @@ def chown_tree(start: Path, username: str, groupname: Optional[str] = None, topd
     shutil.chown(start, username, groupname)
 
 
-
 def operation(the_op: str) -> str:
     """ ArgumentParser validator for the positional parameter operation.
         Valid operations are in VALID_OPERATIONS.
@@ -230,7 +229,7 @@ def do_create_projectfile():
         "restart_cmd": args.restart_cmd,
         "log_cmd": args.log_cmd,
     }
-    projectfile_content = json.dumps(projectdesc, indent=2, sort_keys=True)
+    projectfile_content = json.dumps(projectdesc, indent=2, sort_keys=True) + "\n"
 
     with open(projectfile, "wt") as projectfile:
         projectfile.write(projectfile_content)
@@ -248,15 +247,56 @@ def do_git_clone():
 
 
 def do_create_apache_config():
+    # TODO:
+    # - generate /etc/httpd/conf.sites.d/{args.hostname}.conf
+    #   Use VHost {args.hostname}
     pass
 
 
 def do_create():
-    do_create_user()
-    do_create_ssh_key()
-    do_create_projectfile()
-    do_git_clone()
-    do_create_apache_config()
+    if args.type == "static_website":
+        do_create_user()
+        do_create_ssh_key()
+        do_create_projectfile()
+        do_git_clone()
+        do_create_apache_config()
+
+        # TODO:
+        # - symlink /var/www/{args.hostname} /home/{args.username}/{args.projectname}
+        # - run(restart_apache)
+    elif args.type == "wsgi_site":
+        pass # TODO
+    elif args.type == "discord_bot":
+        pass # TODO
+    else:
+        raise RuntimeError(f"Unknown type {args.type}")
+
+
+def do_delete():
+    # TODO
+    if args.type == "static_website":
+        pass
+    elif args.type == "wsgi_site":
+        pass
+    elif args.type == "discord_bot":
+        pass
+    else:
+        raise RuntimeError(f"Unknown type {args.type}")
+
+
+def do_show_all_projects():
+    pass # TODO
+
+
+def do_show_project():
+    pass # TODO
+
+
+def do_show():
+    if args.project == "projects":
+        do_show_all_projects()
+    else:
+        do_show_project()
 
 
 def main():
@@ -267,9 +307,9 @@ def main():
     if args.operation == "create":
         do_create()
     elif args.operation == "delete":
-        print(f"delete: {args}")
+        do_delete()
     elif args.operation == "show":
-        print(f"show: {args}")
+        do_show()
     else:
         raise ValueError(f"This can never happen: {args.operation=}")
 
