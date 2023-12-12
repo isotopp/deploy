@@ -38,13 +38,6 @@ def chown_tree(start: Path, username: str, groupname: Optional[str] = None, topd
     shutil.chown(start, username, groupname)
 
 
-def project_type(the_type: str) -> str:
-    """ ArgumentParser validator for project types. """
-    if the_type in VALID_PROJECT_TYPES:
-        return the_type
-
-    raise ValueError(f"invalid project type {the_type}, valid types are {VALID_PROJECT_TYPES}")
-
 
 def operation(the_op: str) -> str:
     """ ArgumentParser validator for the positional parameter operation.
@@ -76,6 +69,14 @@ def run(cmd: str) -> int:
         print(f"*** STDERR: {stderr}")
 
     return code
+
+
+def check_type(the_type: str) -> bool:
+    """ ArgumentParser validator for project types. """
+    if the_type in VALID_PROJECT_TYPES:
+        return True
+
+    return False
 
 
 def check_project_exists(project: str) -> bool:
@@ -127,7 +128,7 @@ def get_opts():
     parser.add_argument("operation", type=operation, help="show, create or delete")
     parser.add_argument("project", help="a valid project name, or 'show projects'")
 
-    parser.add_argument("--type", type=project_type, help="one of static_site, wsgi_site or discord_bot")
+    parser.add_argument("--type", help="one of static_site, wsgi_site or discord_bot")
     parser.add_argument("--hostname", help="hostname ending in .snackbag.net (in create)")
     parser.add_argument("--github", help="git@github.com:...")
     parser.add_argument("--deploykey", help="pathname of a deploykey (private key part)")
@@ -139,6 +140,9 @@ def get_opts():
 
 def validate_opts():
     global args
+
+    if not check_type(args.type):
+        raise ValueError(f"invalid project type {args.type}, valid types are {VALID_PROJECT_TYPES}")
 
     if check_project_exists(args.project):
         raise ValueError(f"project {args.project} already exists")
@@ -243,11 +247,16 @@ def do_git_clone():
     chown_tree(repo, args.username, args.username)
 
 
+def do_create_apache_config():
+    pass
+
+
 def do_create():
     do_create_user()
     do_create_ssh_key()
     do_create_projectfile()
     do_git_clone()
+    do_create_apache_config()
 
 
 def main():

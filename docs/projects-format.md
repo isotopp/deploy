@@ -58,8 +58,8 @@ Invariants:
 
 0. Create `/etc/projects` entry.
 1. Check out `github` into `projectdir` using `deploykey` as `content`.
-2. Run `collect_domains`
-3. Double `apache_restart`, livecheck.
+2. Create apache config.
+3. Run `collect_domains`
 
 # Create a WSGI site
 
