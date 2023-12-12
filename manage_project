@@ -7,6 +7,7 @@ import pwd
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Optional
 
 VALID_USERS = ["kris", "joram"]
 VALID_OPERATIONS = ["create", "delete", "show"]
@@ -16,12 +17,15 @@ PROJECT_DIR = Path("/etc/projects")
 args: argparse.Namespace
 
 
-def chown_tree(start: Path, username: str, groupname: str, topdown=True):
+def chown_tree(start: Path, username: str, groupname: Optional[str] = None, topdown=True):
     """ change the ownership of the file tree starting at `start` to
         the UNIX user `username` and the UNIX group `groupname`.
         When `topdown` is set (the default) change happens from top to bottom,
         otherwise the other way around.
     """
+    if groupname is None:
+        groupname = username
+
     for root, dirs, files in os.walk(start, topdown=topdown):
         for the_dir in dirs:
             dname = Path(root) / the_dir
@@ -185,12 +189,25 @@ def do_create_ssh_key():
         sshdir.mkdir(0o700, parents=True, exist_ok=True)
         args.deploykey = f"{sshdir}/id_deploykey"
 
+        ssh_config_filename = sshdir / "config"
+        ssh_config_content = f"""
+Host github
+    HostName github.com
+    User git
+    IdentityFile {args.deploykey}
+    IdentitiesOnly yes
+"""
+        with open(ssh_config_filename, "wt") as ssh_config:
+            ssh_config.write(ssh_config_content)
+
     sshkeygen_cmd = f'ssh-keygen -t rsa -b 4096 -N "" -f {args.deploykey}'
     code = run(sshkeygen_cmd)
 
     pubkeyfilename = f"{args.deploykey}.pub"
     with open(pubkeyfilename, "rt") as f:
         args.pubkey = f.read().strip()
+
+    chown_tree(homedir, args.username, args.username)
 
 
 def do_create_projectfile():
@@ -211,14 +228,26 @@ def do_create_projectfile():
     }
     projectfile_content = json.dumps(projectdesc, indent=2, sort_keys=True)
 
-    with open(projectfile, "w") as projectfile:
+    with open(projectfile, "wt") as projectfile:
         projectfile.write(projectfile_content)
+
+
+def do_git_clone():
+    u = pwd.getpwnam(args.username)
+    home = Path(u.pw_dir)
+    repo = home / args.projectdir
+
+    git_clone_cmd = f"git clone {args.github} {repo}"
+    code = run(git_clone_cmd)
+
+    chown_tree(repo, args.username, args.username)
 
 
 def do_create():
     do_create_user()
     do_create_ssh_key()
     do_create_projectfile()
+    do_git_clone()
 
 
 def main():
