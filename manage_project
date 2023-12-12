@@ -1,14 +1,11 @@
 #! /usr/bin/env python3
 
 import argparse
-import json
 import os
 import pwd
 import shutil
 import subprocess
-import sys
 from pathlib import Path
-from typing import Optional
 
 VALID_USERS = ["kris", "joram"]
 VALID_OPERATIONS = ["create", "delete", "show"]
@@ -74,73 +71,6 @@ def run(cmd: str) -> int:
         print(f"*** STDERR: {stderr}")
 
     return code
-
-
-def create_deploy_description(project: str,
-                              hostname: Optional[str] = None,
-                              unixuser: Optional[str] = None,
-                              projectdir: Optional[str] = None,
-                              checkout_cmd: Optional[str] = None,
-                              restart_cmd: Optional[str] = None,
-                              log_cmd: Optional[str] = None,
-                              overwrite: bool = False):
-    """ Create a deployment description for a project in `/etc/projects`.
-        Will not overwrite an existing project unless `overwrite=True`.
-
-        Optional parameters can be passed, or will be inferred, if left at `None`.
-
-        Default `hostname` is `<project>.snackbag.net.
-        Default `unixuser` is `<project>`.
-        Default `projectdir` is `$HOME/<project>`.
-        Default `checkout_cmd` is `git pull --rebase`.
-        Default `restart_cmd` is `sudo apache_restart`.
-        Default `log_cmd` is `tail -F`.
-    """
-    if hostname is None:
-        hostname = f"{project}.snackbag.net"
-
-    if unixuser is None:
-        unixuser = project
-
-    if projectdir is None:
-        u = pwd.getpwnam(unixuser)
-        h = u.pw_dir
-        projectdir = f"{h}/{project}"
-
-    if checkout_cmd is None:
-        checkout_cmd = CHECKOUT_CMD
-
-    if restart_cmd is None:
-        restart_cmd = RESTART_CMD
-
-    if log_cmd is None:
-        log_cmd = LOG_CMD
-
-    # check the hostname
-    if not hostname.endswith("snackbag.net"):
-        raise ValueError(f"invalid hostname {hostname}, must end in 'snackbag.net'")
-
-    # to json
-    deployment = {
-        "hostname": hostname,
-        "unixuser": unixuser,
-        "projectdir": projectdir,
-        "checkout_cmd": checkout_cmd,
-        "restart_cmd": restart_cmd,
-        "log_cmd": log_cmd,
-    }
-    deployment_json = json.dumps(deployment, indent=2, sort_keys=True) + "\n"
-
-    # write it
-    p = PROJECT_DIR / project
-    if p.is_file() and not overwrite:
-        print(f"Project {project} already exists.", file=sys.stderr)
-        raise FileExistsError(f"can't create: project {project} exists.")
-
-    with p.open("wt") as f:
-        f.write(deployment_json)
-
-    return
 
 
 def check_project_exists(project: str) -> bool:
@@ -236,7 +166,7 @@ def validate_opts():
 def do_create_user() -> int:
     # user must be created
     comment = f"Project {args.project} owner"
-    useradd_cmd = f"/usr/sbin/useradd -m -c {comment} {args.username}"
+    useradd_cmd = f'/usr/sbin/useradd -m -c "{comment}" {args.username}'
     code = run(useradd_cmd)
 
     u = pwd.getpwnam(args.username)
@@ -254,7 +184,7 @@ def do_create_ssh_key():
         sshdir.mkdir(0o700, parents=True, exist_ok=True)
         args.deploykey = f"{sshdir}/id_deploykey"
 
-    sshkeygen_cmd = "ssh-keygen -t rsa -b 4096 -N "" -f {args.deploykey}"
+    sshkeygen_cmd = f"ssh-keygen -t rsa -b 4096 -N "" -f {args.deploykey}"
     code = run(sshkeygen_cmd)
 
     pubkeyfilename = f"{args.deploykey}.pub"
