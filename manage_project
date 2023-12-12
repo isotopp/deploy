@@ -1,7 +1,6 @@
 #! /usr/bin/env python3
 
 import argparse
-import getpass
 import json
 import os
 import pwd
@@ -37,17 +36,6 @@ def chown_tree(start: Path, username: str, groupname: str, topdown=True):
     shutil.chown(start, username, groupname)
 
 
-def valid_caller() -> str:
-    """ Deployments can be done by one of the users listed in VALID USERS.
-        We raise a ValueError if we are being run by somebody else.
-    """
-    user = getpass.getuser()
-    if user in VALID_USERS:
-        return user
-
-    raise ValueError(f"invalid user {user}, valid users are: {VALID_USERS}")
-
-
 def project_type(the_type: str) -> str:
     """ ArgumentParser validator for project types. """
     if the_type in VALID_PROJECT_TYPES:
@@ -67,9 +55,12 @@ def operation(the_op: str) -> str:
     raise ValueError(f"invalid operation {the_op}, valid operatios are {VALID_OPERATIONS}")
 
 
-def show_run_result(result: subprocess.CompletedProcess) -> int:
-    """ Print a `subcommand.run()` result structure.
+def run(cmd: str) -> int:
+    """ Run a command, and report
     """
+    print(f"*** RUN: {cmd}")
+    result = subprocess.run(cmd, capture_output=True, shell=True, timeout=30)
+
     code = result.returncode
     stdout = result.stdout.decode('utf-8')
     stderr = result.stderr.decode('utf-8')
@@ -246,8 +237,7 @@ def do_create_user() -> int:
     # user must be created
     comment = f"Project {args.project} owner"
     useradd_cmd = f"/usr/sbin/useradd -m -c {comment} {args.username}"
-    useradd_result = subprocess.run(useradd_cmd, shell=True, capture_output=True, timeout=30)
-    code = show_run_result(useradd_result)
+    code = run(useradd_cmd)
 
     u = pwd.getpwnam(args.username)
     args.userid = u.pw_uid
@@ -258,14 +248,14 @@ def do_create_user() -> int:
 def do_create_ssh_key():
     u = pwd.getpwnam(args.username)
     homedir = Path(u.pw_dir)
-    sshdir = homedir / ".ssh"
-    sshdir.mkdir(0o700, parents=True, exist_ok=True)
 
-    args.deploykey = f"{sshdir}/id_deploykey"
+    if not args.deploykey:
+        sshdir = homedir / ".ssh"
+        sshdir.mkdir(0o700, parents=True, exist_ok=True)
+        args.deploykey = f"{sshdir}/id_deploykey"
 
     sshkeygen_cmd = "ssh-keygen -t rsa -b 4096 -N "" -f {args.deploykey}"
-    sshkeygen_result = subprocess.run(sshkeygen_cmd, shell=True, capture_output=True, timeout=30)
-    show_run_result(sshkeygen_result)
+    code = run(sshkeygen_cmd)
 
     pubkeyfilename = f"{args.deploykey}.pub"
     with open(pubkeyfilename, "rt") as f:
@@ -300,8 +290,6 @@ def do_create():
 
 
 def main():
-    # Check valid user, and grab the call options
-    user = valid_caller()
     get_opts()
     validate_opts()
 
