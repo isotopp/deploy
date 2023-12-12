@@ -1,6 +1,7 @@
 #! /usr/bin/env python3
 
 import argparse
+import json
 import os
 import pwd
 import shutil
@@ -194,7 +195,7 @@ def do_create_ssh_key():
 
 def do_create_projectfile():
     projectfile = PROJECT_DIR / args.project
-    projectfile_content = {
+    projectdesc = {
         "type": args.type,
         "project": args.project,
         "hostname": args.hostname,
@@ -208,6 +209,7 @@ def do_create_projectfile():
         "restart_cmd": args.restart_cmd,
         "log_cmd": args.log_cmd,
     }
+    projectfile_content = json.dumps(projectdesc)
 
     with open(projectfile, "w") as projectfile:
         projectfile.write(projectfile_content)
