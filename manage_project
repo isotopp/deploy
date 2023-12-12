@@ -5,7 +5,6 @@ import getpass
 import json
 import os
 import pwd
-import re
 import shutil
 import subprocess
 import sys
@@ -15,7 +14,7 @@ from typing import Optional
 VALID_USERS = ["kris", "joram"]
 VALID_OPERATIONS = ["create", "delete", "show"]
 VALID_PROJECT_TYPES = ["static_site", "wsgi_site", "discord_bot"]
-PROJECT_DIR = Path("/etc/projects")
+PROJECT_DIR = Path("projects")
 
 args: argparse.Namespace
 
@@ -68,81 +67,22 @@ def operation(the_op: str) -> str:
     raise ValueError(f"invalid operation {the_op}, valid operatios are {VALID_OPERATIONS}")
 
 
-def show_run_result(result: subprocess.CompletedProcess):
+def show_run_result(result: subprocess.CompletedProcess) -> int:
     """ Print a `subcommand.run()` result structure.
     """
     code = result.returncode
     stdout = result.stdout.decode('utf-8')
     stderr = result.stderr.decode('utf-8')
 
-    if code == 0:
-        print("*** SUCCESS:")
-    else:
+    if code != 0:
         print(f"*** ERROR: exit code={result.returncode}")
 
     if stdout:
-        print(stdout)
+        print(f"*** STDOUT: {stdout}")
     if stderr:
-        print(stderr)
+        print(f"*** STDERR: {stderr}")
 
-
-def create_user(username: str, homedir: Optional[str] = None, comment: Optional[str] = None):
-    """ Create a new user `username`.
-
-        The User will have the homedir `/home/<username>` unless a different `homedir` is specified.
-
-        The User will have the comment `Managed WGSI Application <username>` unless a different `comment` is specified.
-
-        If `exist_ok == True`, it is okay for the user to exist, but a ValueError will be raised, if `homedir`
-        or `comment` do not match.
-    """
-    username_regex = r"[a-z_][a-z0-9_]{1,10}"
-    m = re.fullmatch(username_regex, username)
-    if m is None:
-        raise ValueError(f"username '{username}' does not match '{username_regex}'")
-
-    if homedir is None:
-        homedir = f"/home/{username}"
-
-    if comment is None:
-        comment = f"Managed WSGI Application {username}"
-
-    # user must be created
-    useradd_cmd = f"/usr/sbin/useradd -d {homedir} -c {comment} {username}"
-    useradd_result = subprocess.run(useradd_cmd, shell=True, capture_output=True, timeout=30)
-    show_run_result(useradd_result)
-
-    return
-
-
-def _create_dotsshdir(homedir: Path):
-    """ Create a subdirectory `.ssh` in the users home directory.
-        The ownership for this directory is not set properly.
-    """
-    sshdir = homedir / ".ssh"
-    sshdir.mkdir(0o700, parents=True, exist_ok=True)
-
-    return
-
-
-def _create_sshkey(homedir: Path) -> str:
-    """ Create a `.ssh` subdirectory in the users home. Then generate a passwordless
-        RSA 4096-bit ssh keypair in there.
-        The ownership for the directory and the key are not set properly.
-
-        Returns the pubkey part of the generated keypair.
-    """
-    _create_dotsshdir(homedir)
-
-    sshkeygen_cmd = "ssh-keygen -t rsa -b 4096 -N "" -f {homedir}/.ssh/id_rsa"
-    sshkeygen_result = subprocess.run(sshkeygen_cmd, shell=True, capture_output=True, timeout=30)
-    show_run_result(sshkeygen_result)
-
-    pubkeyfilename = f"{homedir}/.ssh/id_rsa.pub"
-    with open(pubkeyfilename, "rt") as f:
-        pubkey = f.read()
-
-    return pubkey
+    return code
 
 
 def create_deploy_description(project: str,
@@ -212,6 +152,11 @@ def create_deploy_description(project: str,
     return
 
 
+def check_project_exists(project: str) -> bool:
+    p = PROJECT_DIR / project
+    return p.exists() and p.is_file()
+
+
 def check_username_exists(username: str) -> bool:
     try:
         pwd.getpwnam(username)
@@ -253,8 +198,8 @@ def get_opts():
     global args
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("operation", type=operation, help="code or deploy, logs, show, create, delete")
-    parser.add_argument("project", help="a valid project name")
+    parser.add_argument("operation", type=operation, help="show, create or delete")
+    parser.add_argument("project", help="a valid project name, or 'show projects'")
 
     parser.add_argument("--type", type=project_type, help="one of static_site, wsgi_site or discord_bot")
     parser.add_argument("--hostname", help="hostname ending in .snackbag.net (in create)")
@@ -269,23 +214,89 @@ def get_opts():
 def validate_opts():
     global args
 
+    if check_project_exists(args.project):
+        raise ValueError(f"project {args.project} already exists")
+
+    if not args.username:
+        args.username = args.project
     if check_username_exists(args.username):
         raise ValueError(f"username {args.username} already exists")
 
-    user = pwd.getpwnam(args.username)
-    args.userid = user.pw_uid
-
+    if not args.hostname:
+        args.hostname = f"{args.project}.snackbag.net"
     if not check_hostname_valid(args.hostname):
         raise ValueError(f"hostname {args.hostname} does not end in '.snackbag.net'")
 
+    if not args.github:
+        raise ValueError(f"github is empty; specify --github <somegithub>")
     if not check_github_valid(args.github):
         raise ValueError(f"github {args.github} is not a valid github url 'git@github.com:...")
+
+    if not args.projectdir:
+        args.projectdir = args.username
 
     args.update_cmd = get_update_cmd()
     args.restart_cnd = get_restart_cmd()
     args.log_cmd = get_log_cmd()
 
     return
+
+
+def do_create_user() -> int:
+    # user must be created
+    comment = f"Project {args.project} owner"
+    useradd_cmd = f"/usr/sbin/useradd -m -c {comment} {args.username}"
+    useradd_result = subprocess.run(useradd_cmd, shell=True, capture_output=True, timeout=30)
+    code = show_run_result(useradd_result)
+
+    u = pwd.getpwnam(args.username)
+    args.userid = u.pw_uid
+
+    return code
+
+
+def do_create_ssh_key():
+    u = pwd.getpwnam(args.username)
+    homedir = Path(u.pw_dir)
+    sshdir = homedir / ".ssh"
+    sshdir.mkdir(0o700, parents=True, exist_ok=True)
+
+    args.deploykey = f"{sshdir}/id_deploykey"
+
+    sshkeygen_cmd = "ssh-keygen -t rsa -b 4096 -N "" -f {args.deploykey}"
+    sshkeygen_result = subprocess.run(sshkeygen_cmd, shell=True, capture_output=True, timeout=30)
+    show_run_result(sshkeygen_result)
+
+    pubkeyfilename = f"{args.deploykey}.pub"
+    with open(pubkeyfilename, "rt") as f:
+        args.pubkey = f.read()
+
+
+def do_create_projectfile():
+    projectfile = PROJECT_DIR / args.project
+    projectfile_content = {
+        "type": args.type,
+        "project": args.project,
+        "hostname": args.hostname,
+        "github": args.github,
+        "deploykey": args.deploykey,
+        "pubkey": args.pubkey,
+        "projectdir": args.projectdir,
+        "username": args.username,
+        "userid": args.userid,
+        "update_cmd": args.update_cmd,
+        "restart_cmd": args.restart_cmd,
+        "log_cmd": args.log_cmd,
+    }
+
+    with open(projectfile, "w") as projectfile:
+        projectfile.write(projectfile_content)
+
+
+def do_create():
+    do_create_user()
+    do_create_ssh_key()
+    do_create_projectfile()
 
 
 def main():
@@ -296,7 +307,7 @@ def main():
 
     # operation is one of the things in VALID_OPERATIONS
     if args.operation == "create":
-        print(f"create {args}")
+        do_create()
     elif args.operation == "delete":
         print(f"delete: {args}")
     elif args.operation == "show":
