@@ -110,7 +110,16 @@ def get_update_cmd():
 
 
 def get_restart_cmd():
-    return "restart_cmd"  # TODO
+    choices = {
+        "static_site": "/usr/local/bin/restart_apache",
+        "wsgi_site": "/usr/local/bin/restart_apache",
+        "discord_bot": f"/usr/local/bin/restart_service {args.project}",
+    }
+
+    try:
+        return choices[args.type]
+    except KeyError:
+        raise ValueError(f"Unknown project type: {args.type}")
 
 
 def get_log_cmd():
@@ -247,10 +256,21 @@ def do_git_clone():
 
 
 def do_create_apache_config():
-    # TODO:
-    # - generate /etc/httpd/conf.sites.d/{args.hostname}.conf
-    #   Use VHost {args.hostname}
-    pass
+    if args.type == "static_site":
+        config_filename = f"/etc/httpd/conf.sites.d/{args.hostname}.conf"
+        config_content = f"Use VHost {args.hostname}"
+        with open(config_filename, "wt") as config_file:
+            config_file.write(config_content)
+
+
+def do_create_site_symlink():
+    from_path = Path(f"/var/www/{args.hostname}")
+
+    u = pwd.getpwnam(args.username)
+    home = Path(u.pw_dir)
+    to_path = home / args.projectdir
+
+    from_path.symlink_to(to_path)
 
 
 def do_create():
@@ -260,14 +280,13 @@ def do_create():
         do_create_projectfile()
         do_git_clone()
         do_create_apache_config()
+        do_create_site_symlink()
+        run(args.restart_cmd)
 
-        # TODO:
-        # - symlink /var/www/{args.hostname} /home/{args.username}/{args.projectname}
-        # - run(restart_apache)
     elif args.type == "wsgi_site":
-        pass # TODO
+        pass  # TODO
     elif args.type == "discord_bot":
-        pass # TODO
+        pass  # TODO
     else:
         raise RuntimeError(f"Unknown type {args.type}")
 
