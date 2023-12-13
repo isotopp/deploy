@@ -65,7 +65,8 @@ def log_project(project: str):
         raise ValueError(f"cannot deploy to project {project}, no project file found.")
 
     config = load_deploy_description(project)
-    os.chdir(config["projectdir"])
+    workdir = Path(config["home"]) / config["projectdir"]
+    os.chdir(workdir)
 
     if config['log_cmd'] == "tail -F":
         log_cmd = config['log_cmd']
