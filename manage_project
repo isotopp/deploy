@@ -274,7 +274,7 @@ def do_create_site_symlink():
 
 
 def do_create():
-    if args.type == "static_website":
+    if args.type == "static_site":
         do_create_user()
         do_create_ssh_key()
         do_create_projectfile()
@@ -293,7 +293,7 @@ def do_create():
 
 def do_delete():
     # TODO
-    if args.type == "static_website":
+    if args.type == "static_site":
         pass
     elif args.type == "wsgi_site":
         pass
