@@ -79,11 +79,13 @@ def check_type(the_type: str) -> bool:
 
 
 def check_project_exists(project: str) -> bool:
+    """ predicate is True if a project file exists in PROJECT_DIR """
     p = PROJECT_DIR / project
     return p.exists() and p.is_file()
 
 
 def check_username_exists(username: str) -> bool:
+    """ predicate is True if user exists in system """
     try:
         pwd.getpwnam(username)
         return True
@@ -92,6 +94,7 @@ def check_username_exists(username: str) -> bool:
 
 
 def check_hostname_valid(hostname: str) -> bool:
+    """ predicate is True if hostname ends with .snackbag.net """
     if hostname.endswith(".snackbag.net"):
         return True
 
@@ -99,6 +102,7 @@ def check_hostname_valid(hostname: str) -> bool:
 
 
 def check_github_valid(github: str) -> bool:
+    """ predicate is true if github starts with 'git@github.com:' """
     if github.startswith("git@github.com:"):
         return True
 
@@ -106,7 +110,16 @@ def check_github_valid(github: str) -> bool:
 
 
 def get_update_cmd():
-    return "update_cmd"  # TODO
+    choices = {
+        "static_site": "/usr/local/bin/pip_and_pull",
+        "wsgi_site": "/usr/local/bin/pip_and_pull",
+        "discord_bot": "/usr/local/bin/pip_and_pull",
+    }
+
+    try:
+        return choices[args.type]
+    except KeyError:
+        raise ValueError(f"Unknown project type: {args.type}")
 
 
 def get_restart_cmd():
@@ -123,7 +136,16 @@ def get_restart_cmd():
 
 
 def get_log_cmd():
-    return "log_cmd"  # TODO
+    choices = {
+        "static_site": "tail -F",
+        "wsgi_site": "tail -F",
+        "discord_bot": f"/usr/local/bin/logtail {args.project}",
+    }
+
+    try:
+        return choices[args.type]
+    except KeyError:
+        raise ValueError(f"Unknown project type: {args.type}")
 
 
 def get_opts():
@@ -208,6 +230,9 @@ def do_create_user() -> int:
     u = pwd.getpwnam(args.username)
     args.userid = u.pw_uid
     args.home = u.pw_dir
+
+    # must set a+x so that the content can later be accessed by the webserver
+    Path(args.home).chmod(0o711)
 
     return code
 
