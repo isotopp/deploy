@@ -52,7 +52,8 @@ def operation(the_op: str) -> str:
 def run(cmd: str) -> int:
     """ Run a command, and report
     """
-    print(f"*** RUN: {cmd}")
+    if (args.debug):
+        print(f"*** RUN: {cmd}")
     result = subprocess.run(cmd, capture_output=True, shell=True, timeout=30)
 
     code = result.returncode
@@ -62,9 +63,9 @@ def run(cmd: str) -> int:
     if code != 0:
         print(f"*** ERROR: exit code={result.returncode}")
 
-    if stdout:
+    if stdout and args.debug:
         print(f"*** STDOUT: {stdout}")
-    if stderr:
+    if stderr and args.debug:
         print(f"*** STDERR: {stderr}")
 
     return code
@@ -111,7 +112,7 @@ def check_github_valid(github: str) -> bool:
 
 def get_update_cmd():
     choices = {
-        "static_site": "/usr/local/bin/pip_and_pull",
+        "static_site": "/usr/local/bin/pull_force",
         "wsgi_site": "/usr/local/bin/pip_and_pull",
         "discord_bot": "/usr/local/bin/pip_and_pull",
     }
@@ -157,6 +158,8 @@ def get_opts():
     parser = argparse.ArgumentParser()
     parser.add_argument("operation", type=operation, help="show, create or delete")
     parser.add_argument("project", help="a valid project name, or 'show projects'")
+
+    parser.add_argument("--debug", action="store_true", help="enable debug logging", default=False)
 
     parser.add_argument("--type", help="one of static_site, wsgi_site or discord_bot")
     parser.add_argument("--hostname", help="hostname ending in .snackbag.net (in create)")
