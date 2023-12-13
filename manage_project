@@ -272,13 +272,11 @@ def do_create_ssh_key():
     deploykey = f"{sshdir}/id_deploykey"
     ssh_config_filename = sshdir / "config"
     ssh_config_content = f"""
-Host github
+Host github.com
     HostName github.com
     User git
     IdentityFile {deploykey}
     IdentitiesOnly yes
-
-Host *
     StrictHostKeyChecking accept-new
 """
     with open(ssh_config_filename, "wt") as ssh_config:
