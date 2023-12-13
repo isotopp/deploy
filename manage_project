@@ -399,10 +399,12 @@ def github_as_https(github: str, subpath: str):
 
     # git@github.com:vijfhuizen-c0derz/deploy.git
     # https://github.com/vijfhuizen-c0derz/deploy
-    _, repo = github.split(":")
-    repo, _ = repo.split(".")
+    if github.startswith("git@github.com:"):
+        github = github[len("git@github.com:")]
+    if github.endswith(".git"):
+        github = github[:-len(".git")]
 
-    return "https://github.com/" + repo + "/" + subpath
+    return "https://github.com/" + github + "/" + subpath
 
 
 def show_deployment_banner():
