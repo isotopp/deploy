@@ -39,11 +39,11 @@ Invariants:
 - Implied values must not be specified
   (projectdir, username, update_cmd, log_cmd and restart_cmd).
 
-0. Create `/etc/projects` entry.
 1. Create a user, `.ssh` dir, and ssh-key and ssh-identity config for the site.
-1. Check out `github` into `/home/user/projectdir` using `deploykey`.
-2. Create apache config.
-3. Restart apache, collecting Domains.
+2. Check out `github` into `/home/user/projectdir` using `deploykey`.
+3. Create `/etc/projects` entry.
+4. Create apache config.
+5. Restart apache, collecting Domains.
 
 # Create a WSGI site
 
@@ -92,17 +92,14 @@ Invariants:
 
 Also, the deploykey must be set for the github repository in order for the initial checkout to work.
 
-0. Create `/etc/projects` entry.
-1. `useradd -m -c "<projectdir> Webserver" <username>
-2. `passwd -l <username>`
-3. `mkdir /home/<username>/.ssh` + user + permissions
-4. `su -l -c "ssh-keygen -t rsa -b 4096 -N "" -f /home/<username>/.ssh/id_deploykey - <username>`
-5. Deploykey anzeigen + Bestätigung abwarten (github update)
-6. `su -l -c "git clone <github> /home/<username>/<project> - <username>`
-7. `mkdir /var/www/<hostname>` + index.html + owner content
-8. `su -l -c "/usr/local/bin/pip_and_pull"` zum Anlegen des venv, installieren der requirements und git pull.
-9. Erzeugen der `/etc/httpd/conf.sites.d/<hostname>`.
-10. Double restart_apache
+1. Create a user
+2. Create ssh config (key, config)
+3. Create `/etc/projects` entry.
+4. Check out `github` into `/home/user/projectdir` using `deploykey`.
+5. Python venv, pip und pull.
+6. Apache Config "Use PyApp Macro"
+7. Site Symlink
+9. Apache Restart (und collect domains)
 
 # Create a Discord Bot
 
@@ -130,9 +127,6 @@ Both files have to readable for the `deploy` program.
 `username`:
 : The `username` under which the project runs.
 
-`projectdir`:
-: Subdirectory in the users home, so `/home/<username>/<projectdir>`.
-
 `update_cmd`:
 : Usually `/usr/local/bin/pip_and_pull`.
 
@@ -144,16 +138,13 @@ Both files have to readable for the `deploy` program.
 
 ## Creation Flow
 
-0. Create `/etc/projects` file.
-1. `useradd -m -c "<projectdir> Webserver" <username>
-2. `passwd -l <username>`
-3. `mkdir /home/<username>/.ssh` + user + permissions
-4. `su -l -c "ssh-keygen -t rsa -b 4096 -N "" -f /home/<username>/.ssh/id_deploykey - <username>`
-5. Deploykey anzeigen + Bestätigung abwarten (github update)
-6. `su -l -c "git clone <github> /home/<username>/<project> - <username>`
-7. Create `/home/<username>/<projectdir>/.env`.
-7. Create a `/etc/systemd/system/mradmin.service`.
-8. `systemctl daemon-reload`, `enable` and `start`.
+1. Create a user
+2. Create ssh config (key, config)
+3. Create `/etc/projects` entry.
+4. Check out `github` into `/home/user/projectdir` using `deploykey`.
+5. Python venv, pip und pull.
+6. Create a `/etc/systemd/system/mradmin.service`.
+7. `systemctl daemon-reload`, `enable` and `start`.
 
 ## Service Template
 
@@ -182,10 +173,10 @@ operation := show, create, delete
 project := project name
 
 create: flags für
+  --debug
   --type=static_site,wsgi_site,discord_bot
   --hostname=....snackbag.net
   --github=git@github:...
-  --deploykey=path
   --username=str
   --projectdir=pathname_component
 
