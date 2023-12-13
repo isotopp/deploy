@@ -48,13 +48,13 @@ def operation(the_op: str) -> str:
     if the_op in VALID_OPERATIONS:
         return the_op
 
-    raise ValueError(f"invalid operation {the_op}, valid operatios are {VALID_OPERATIONS}")
+    raise ValueError(f"invalid operation {the_op}, valid operations are {VALID_OPERATIONS}")
 
 
 def run(cmd: str) -> int:
     """ Run a command, and report
     """
-    if (args.debug):
+    if args.debug:
         print(f"*** RUN: {cmd}")
     result = subprocess.run(cmd, capture_output=True, shell=True, timeout=30)
 
@@ -233,7 +233,7 @@ def validate_or_load_opts():
 
 
 def do_create_user() -> int:
-    """ Build a useradd command and run it.
+    """ Build the useradd command and run it.
         Also populates the args.home, which is needed a lot later on.
      """
     # user must be created
@@ -251,7 +251,7 @@ def do_create_user() -> int:
 
 
 def do_delete_user():
-    """ Build a userdel command and run it."""
+    """ Build the userdel command and run it."""
     userdel_cmd = f'/usr/sbin/userdel -r {args.username}'
     code = run(userdel_cmd)
 
@@ -259,7 +259,7 @@ def do_delete_user():
 
 
 def do_create_ssh_key():
-    """ Build a ssh-keygen command and run it.
+    """ Build the ssh-keygen command and run it.
         The new key is in {args.home}/.ssh/id_deploykey.
      """
 
@@ -286,7 +286,7 @@ Host *
 
     # Step 3: Create $HOME/.ssh/id_deploykey
     sshkeygen_cmd = f'ssh-keygen -t rsa -b 4096 -N "" -f {deploykey}'
-    code = run(sshkeygen_cmd)
+    run(sshkeygen_cmd)
 
     pubkeyfilename = f"{deploykey}.pub"
     with open(pubkeyfilename, "rt") as f:
@@ -333,7 +333,7 @@ def do_git_clone():
     repo = home / args.projectdir
 
     git_clone_cmd = f"git clone {args.github} {repo}"
-    code = run(git_clone_cmd)
+    run(git_clone_cmd)
 
     # This must all be owned by the user.
     chown_tree(repo, args.username, args.username)
@@ -492,7 +492,13 @@ def do_show_project():
         raise RuntimeError(f"project {args.project} does not exist")
 
     with project.open() as f:
-        print(f.read())
+        config = json.load(f)
+
+    max_key_len = max(len(key) for key in config)
+
+    print(f"*** PROJECT {project}")
+    for k, v in sorted(config.items()):
+        print(f"- {k:<{max_key_len}}: {v}")
 
 
 def do_show():
