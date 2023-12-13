@@ -1,4 +1,4 @@
-#! /usr/bin/env python3
+#! /usr/bin/env python3.11
 
 import argparse
 import json
@@ -13,6 +13,8 @@ VALID_USERS = ["kris", "joram"]
 VALID_OPERATIONS = ["create", "delete", "show"]
 VALID_PROJECT_TYPES = ["static_site", "wsgi_site", "discord_bot"]
 PROJECT_DIR = Path("/etc/projects")
+
+THE_PYTHON = "python3.11"
 
 args: argparse.Namespace
 
@@ -275,6 +277,9 @@ Host github
     User git
     IdentityFile {deploykey}
     IdentitiesOnly yes
+
+Host *
+    StrictHostKeyChecking accept-new
 """
     with open(ssh_config_filename, "wt") as ssh_config:
         ssh_config.write(ssh_config_content)
@@ -334,6 +339,21 @@ def do_git_clone():
     chown_tree(repo, args.username, args.username)
 
 
+def do_python_setup():
+    """ Prepare a git checkout for Python usage. """
+    home = Path(args.home)
+    repo = home / args.projectdir
+    os.chdir(repo)
+
+    # Step 1: create venv
+    venv_cmd = f'su -c "{THE_PYTHON} -mvenv venv" {args.username}'
+    run(venv_cmd)
+
+    # Step 2: pip_and_pull
+    pull_cmd = f'su -c "/usr/local/bin/pip_and_pull" {args.username}'
+    run(pull_cmd)
+
+
 def do_create_apache_config():
     """ Create an apache config in /etc/httpd/conf.sites.d/{args.hostname}.conf. """
     config_filename = f"/etc/httpd/conf.sites.d/{args.hostname}.conf"
@@ -352,6 +372,7 @@ Use PyApp {args.hostname} {args.project}   {args.home}/{args.projectdir}   {args
 """
     with open(config_filename, "wt") as config_file:
         config_file.write(config_content)
+
 
 def do_delete_apache_config():
     """ Delete the apache config in /etc/httpd/conf.sites.d/{args.hostname}.conf. """
@@ -389,6 +410,7 @@ def do_create():
         do_create_ssh_key()
         do_create_projectfile()
         do_git_clone()
+        do_python_setup()
         do_create_apache_config()
         do_create_site_symlink()
         run(args.restart_cmd)
