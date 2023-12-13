@@ -424,18 +424,24 @@ def do_create():
 def do_delete():
     """ Execute the necessary delete steps. """
     if args.type == "static_site":
-        do_delete_user()
+        # Clean up the apache
         do_delete_site_symlink()
         do_delete_apache_config()
-        do_delete_project_file()
         run(args.restart_cmd)
+
+        # Now delete the user and the project
+        do_delete_user()
+        do_delete_project_file()
         print(f"project {args.project} ({args.type}) deleted")
     elif args.type == "wsgi_site":
-        do_delete_user()
+        # Clean up the apache
         do_delete_site_symlink()
         do_delete_apache_config()
-        do_delete_project_file()
         run(args.restart_cmd)
+
+        # Now delete the user and the project
+        do_delete_user()
+        do_delete_project_file()
         print(f"project {args.project} ({args.type}) deleted")
     elif args.type == "discord_bot":
         # TODO
