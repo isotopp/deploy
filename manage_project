@@ -304,11 +304,17 @@ def do_delete():
 
 
 def do_show_all_projects():
-    pass # TODO
+    for p in sorted(list(PROJECT_DIR.glob("*"))):
+        print(f"- {p.name}")
 
 
 def do_show_project():
-    pass # TODO
+    project = PROJECT_DIR / args.project
+    if not project.exists():
+        raise RuntimeError(f"project {args.project} does not exist")
+
+    with project.open() as f:
+        print(f.read())
 
 
 def do_show():
