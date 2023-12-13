@@ -394,6 +394,33 @@ def do_delete_site_symlink():
     from_path.unlink()
 
 
+def github_as_https(github: str, subpath: str):
+    """ Turn a git@github.com: url into a https url. """
+
+    # git@github.com:vijfhuizen-c0derz/deploy.git
+    # https://github.com/vijfhuizen-c0derz/deploy
+    _, repo = github.split(":")
+    repo, _ = repo.split(".")
+
+    return "https://github.com/" + repo + "/" + subpath
+
+
+def show_deployment_banner():
+    print(f"""
+We have deployed the site 
+{args.hostname}
+from 
+{args.github}
+ 
+But for the deploy program to be able to update, you need to add the sites' deploy key to their github.
+
+Go to to the sites github, 
+{github_as_https(args.github, "settings/keys/new")}
+and add
+{args.pubkey}
+""")
+
+
 def do_create():
     """ Execute the necessary create steps. """
     if args.type == "static_site":
@@ -404,7 +431,8 @@ def do_create():
         do_create_apache_config()
         do_create_site_symlink()
         run(args.restart_cmd)
-        print(f"project {args.project} ({args.type} created")
+        print(f"project {args.project} ({args.type}) created")
+        show_deployment_banner()
     elif args.type == "wsgi_site":
         do_create_user()
         do_create_ssh_key()
@@ -414,7 +442,8 @@ def do_create():
         do_create_apache_config()
         do_create_site_symlink()
         run(args.restart_cmd)
-        print(f"project {args.project} ({args.type} created")
+        print(f"project {args.project} ({args.type}) created")
+        show_deployment_banner()
     elif args.type == "discord_bot":
         pass  # TODO
     else:
