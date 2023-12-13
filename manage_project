@@ -111,8 +111,8 @@ def get_update_cmd():
 
 def get_restart_cmd():
     choices = {
-        "static_site": "/usr/local/bin/restart_apache",
-        "wsgi_site": "/usr/local/bin/restart_apache",
+        "static_site": "/usr/local/bin/apache_restart",
+        "wsgi_site": "/usr/local/bin/apache_restart",
         "discord_bot": f"/usr/local/bin/restart_service {args.project}",
     }
 
