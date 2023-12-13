@@ -273,7 +273,7 @@ def do_create_ssh_key():
 Host github
     HostName github.com
     User git
-    IdentityFile {args.deploykey}
+    IdentityFile {deploykey}
     IdentitiesOnly yes
 """
     with open(ssh_config_filename, "wt") as ssh_config:
