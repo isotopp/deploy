@@ -28,25 +28,8 @@ The domain name has to end with `.snackbag.net`.
 : The URL that holds the content for the site.
 It has to start with `git@github.com:`
 
-`deploykey: "ssh-rsa ...."`
-: The path to a `ssh` deploy keypair.
-The name refers to the private key.
-The public key must be in the same directory, with the same name + `.pub`.
-Both files have to readable for the `deploy` program.
-
-The values for the following variables are not specified in the project file and are implied:
-
-`projectdir:`
-: `/var/www/<hostname>`
-
-`username` and `userid`:
-: All content is owned by the user `content`.
-
-`update_cmd` and `log_cmd`:
-: Standard `git pull --rebase` and an `tail -F /var/log/httpd/{access,error}.log`.
-
-`restart_cmd`:
-: none needed.
+`username` 
+: All content is owned by this user.
 
 ## Creation Flow
 
@@ -54,12 +37,13 @@ Invariants:
 
 - hostname must not exist.
 - Implied values must not be specified
-  (projectdir, username, userid, update_cmd, log_cmd and restart_cmd).
+  (projectdir, username, update_cmd, log_cmd and restart_cmd).
 
 0. Create `/etc/projects` entry.
-1. Check out `github` into `projectdir` using `deploykey` as `content`.
+1. Create a user, `.ssh` dir, and ssh-key and ssh-identity config for the site.
+1. Check out `github` into `/home/user/projectdir` using `deploykey`.
 2. Create apache config.
-3. Run `collect_domains`
+3. Restart apache, collecting Domains.
 
 # Create a WSGI site
 
@@ -84,7 +68,7 @@ The name refers to the private key.
 The public key must be in the same directory, with the same name + `.pub`.
 Both files have to readable for the `deploy` program.
 
-`username` and `userid`:
+`username`:
 : The `username` under which the project runs.
 
 `projectdir`:
@@ -104,13 +88,12 @@ Both files have to readable for the `deploy` program.
 Invariants:
 
 - hostname must not exist.
-- userid must not exist.
 - username must not exist.
 
 Also, the deploykey must be set for the github repository in order for the initial checkout to work.
 
 0. Create `/etc/projects` entry.
-1. `useradd -u <userid> -m -c "<projectdir> Webserver" <username>
+1. `useradd -m -c "<projectdir> Webserver" <username>
 2. `passwd -l <username>`
 3. `mkdir /home/<username>/.ssh` + user + permissions
 4. `su -l -c "ssh-keygen -t rsa -b 4096 -N "" -f /home/<username>/.ssh/id_deploykey - <username>`
@@ -144,7 +127,7 @@ The name refers to the private key.
 The public key must be in the same directory, with the same name + `.pub`.
 Both files have to readable for the `deploy` program.
 
-`username` and `userid`:
+`username`:
 : The `username` under which the project runs.
 
 `projectdir`:
@@ -162,7 +145,7 @@ Both files have to readable for the `deploy` program.
 ## Creation Flow
 
 0. Create `/etc/projects` file.
-1. `useradd -u <userid> -m -c "<projectdir> Webserver" <username>
+1. `useradd -m -c "<projectdir> Webserver" <username>
 2. `passwd -l <username>`
 3. `mkdir /home/<username>/.ssh` + user + permissions
 4. `su -l -c "ssh-keygen -t rsa -b 4096 -N "" -f /home/<username>/.ssh/id_deploykey - <username>`
