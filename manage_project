@@ -147,6 +147,10 @@ def get_opts():
 
 
 def do_load_project():
+    # special case
+    if args.operation == "show" and args.project == "projects":
+        return
+
     if not check_project_exists(args.project):
         raise ValueError(f"project {args.project} does not exist")
 
