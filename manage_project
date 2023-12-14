@@ -9,6 +9,7 @@ import json
 import os
 import pwd
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -606,6 +607,16 @@ def do_systemd_restart(service: str):
 
 def do_httpd_restart():
     """ Restart httpd (twice, because of certificate management) """
+    the_hostname = socket.gethostname()
+    hostnames = [the_hostname]
+    hostnames.append(collect_httpd_hostnames(PROJECT_DIR))
+    all_hostnames = " ".join(hostnames)
+    to_file(f'''Servername {the_hostname}
+MDCertificateAgreement accepted
+MDPrivateKeys RSA 4096
+MDomain {all_hostnames}
+''', Path("/etc/httpd/conf.d/ssldomain.con"))
+
     for _ in [1, 2]:
         do_systemd_restart("httpd")
 
