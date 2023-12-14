@@ -16,21 +16,27 @@ import time
 from pathlib import Path
 from typing import Optional, Union
 
-VALID_OPERATIONS = ["create", "delete", "show", "restart", "update", "logs"]
-VALID_PROJECT_TYPES = ["static_site", "wsgi_site", "discord_bot"]
-PROJECT_DIR = Path("/etc/projects")
+VALID_OPERATIONS = ['create', 'delete', 'show', 'restart', 'update', 'logs']
+VALID_PROJECT_TYPES = ['static_site', 'wsgi_site', 'discord_bot']
 
-THE_PYTHON = "python3.11"
+PROJECT_DIR = Path('/etc/projects')
+LOG_DIR = Path('/var/log')
+
+THE_PYTHON = '/usr/bin/python3.11'
 
 args: argparse.Namespace
 
 
-def chown_tree(start: Path, username: str, groupname: Optional[str] = None, topdown=True):
+def chown_tree(start: Union[str, Path, os.PathLike, bytes], username: str, groupname: Optional[str] = None,
+               topdown=True):
     """ change the ownership of the file tree starting at `start` to
         the UNIX user `username` and the UNIX group `groupname`.
         When `topdown` is set (the default) change happens from top to bottom,
         otherwise the other way around.
     """
+    if not isinstance(start, Path):
+        start = Path(start)
+
     if groupname is None:
         groupname = username
 
@@ -76,8 +82,8 @@ def operation(the_op: str) -> str:
 
 def run(cmd: str, *,
         timeout: Optional[int] = None,
-        user: Optional[str] = None,
-        group: Optional[str] = None) -> int:
+        username: Optional[str] = None,
+        groupname: Optional[str] = None) -> int:
     """ Run a command, and report
     """
     if timeout is None:
@@ -85,7 +91,7 @@ def run(cmd: str, *,
     if args.debug:
         print(f"*** RUN: {cmd}")
 
-    result = subprocess.run(cmd, capture_output=True, shell=True, timeout=timeout, user=user, group=group)
+    result = subprocess.run(cmd, capture_output=True, shell=True, timeout=timeout, user=username, group=groupname)
 
     code = result.returncode
     stdout = result.stdout.decode('utf-8')
@@ -229,41 +235,45 @@ def validate_or_load_opts():
     return
 
 
-def do_create_user() -> int:
-    """ Build the useradd command and run it.
-        Also populates the args.home, which is needed a lot later on.
+def do_create_user(username: str, project: str, *, mode=0x711) -> str:
+    """ Build a useradd command and run it.
+        Returns the home of the user we just created.
      """
-    # user must be created
-    comment = f"Project {args.project} owner"
-    code = run(f'/usr/sbin/useradd -m -c "{comment}" {args.username}')
 
-    u = pwd.getpwnam(args.username)
-    args.home = u.pw_dir
+    # user must be created
+    comment = f"Project {project} owner"
+    run(f'/usr/sbin/useradd -m -c "{comment}" {username}')
+
+    u = pwd.getpwnam(username)
+    home = u.pw_dir
 
     # must set a+x so that the content can later be accessed by the webserver
-    Path(args.home).chmod(0o711)
+    Path(home).chmod(mode)
 
-    return code
+    return home
 
 
-def do_delete_user():
+def do_delete_user(username: str):
     """ Build the userdel command and run it."""
-    code = run(f'/usr/sbin/userdel -r {args.username}')
+    code = run(f'/usr/sbin/userdel -r {username}')
 
     return code
 
 
-def do_create_ssh_key():
-    """ Build the ssh-keygen command and run it.
-        The new key is in {args.home}/.ssh/id_deploykey.
+def do_create_ssh_key(username: str, home: str) -> str:
+    """ Create a new ssh key (id_deploykey) for the user.
+        We also create the .ssh directory, as needed, and add a .ssh/config.
+
+        The id_deploykey.pub is returned (the key, not the path to the key).
      """
 
     # Step 1: Create $HOME/.ssh
-    sshdir = Path(args.home) / ".ssh"
+    sshdir = Path(home) / ".ssh"
     sshdir.mkdir(0o700, parents=True, exist_ok=True)
 
     # Step 2: Create $HOME/.ssh/config
     deploykey = f"{sshdir}/id_deploykey"
+
     to_file(f"""
 Host github.com
     HostName github.com
@@ -271,109 +281,115 @@ Host github.com
     IdentityFile {deploykey}
     IdentitiesOnly yes
     StrictHostKeyChecking accept-new
-""", sshdir / "config", mode=0o644, owner=args.username, group=args.username)
+""", sshdir / "config", mode=0o644, owner=username, group=username)
 
     # Step 3: Create $HOME/.ssh/id_deploykey and save the pubkey
     run(f'ssh-keygen -t rsa -b 4096 -N "" -f {deploykey}')
-    args.pubkey = Path(f"{deploykey}.pub").read_text().strip()
+    pubkey = Path(f"{deploykey}.pub").read_text().strip()
 
     # Step 4: Chown all the files to the user.
-    chown_tree(Path(args.home), args.username, args.username)
+    chown_tree(home, username=username)
+
+    return pubkey
 
 
-def do_create_projectfile():
+def do_create_projectfile(config):
     """ Create a project file in PROJECT_DIR. """
-    project_filename = PROJECT_DIR / args.project
+    project_filename = PROJECT_DIR / config.project
     project_desc = {
-        "type": args.type,
-        "project": args.project,
-        "hostname": args.hostname,
-        "github": args.github,
-        "pubkey": args.pubkey,
-        "projectdir": args.projectdir,
-        "username": args.username,
-        "home": args.home,
+        "type": config.type,
+        "project": config.project,
+        "hostname": config.hostname,
+        "github": config.github,
+        "pubkey": config.pubkey,
+        "projectdir": config.projectdir,
+        "username": config.username,
+        "home": config.home,
     }
     project_file_content = json.dumps(project_desc, indent=2, sort_keys=True) + "\n"
     to_file(project_file_content, project_filename)
 
 
-def do_delete_project_file():
+def do_delete_project_file(project: str):
     """ Delete the project file in PROJECT_DIR. """
-    Path(PROJECT_DIR / args.project).unlink(missing_ok=True)
+    Path(PROJECT_DIR / project).unlink(missing_ok=True)
 
 
-def do_git_clone():
+def do_git_clone(target: Union[str, Path, os.PathLike, bytes], repo: str, username: str, timeout: int):
     """ Perform a git clone of args.github into $HOME/args.projectdir
         using the identity provided in $HOME/.ssh/config.
     """
-    repo = Path(args.home) / args.projectdir
-    run(f"git clone {args.github} {repo}", timeout=args.timeout)
+    if not isinstance(target, Path):
+        target = Path(target)
 
-    # This must all be owned by the user.
-    chown_tree(repo, args.username, args.username)
+    run(f"git clone {repo} {target}", timeout=timeout, username=username, groupname=username)
 
 
-def do_python_setup():
+def do_python_setup(target: Union[str, Path, os.PathLike, bytes], username: str, timeout: int):
     """ Prepare a git checkout for Python usage. """
-    repo = Path(args.home) / args.projectdir
-    os.chdir(repo)
+    if not isinstance(target, Path):
+        target = Path(target)
+    os.chdir(target)  # /home/keks/keks
 
     # Step 1: create venv
-    run(f'{THE_PYTHON} -mvenv venv', user=args.username, group=args.username)
+    run(f'{THE_PYTHON} -mvenv venv', username=username, groupname=username)
 
     # Step 2: pip install -U pip wheel
-    run(f'venv/bin/python -mpip install -U pip wheel', timeout=args.timeout, user=args.username, group=args.username)
+    run(f'venv/bin/python -mpip install -U pip wheel', timeout=timeout, username=username,
+        groupname=username)
 
     # Step 3: pip install -r requirements.txt
     requirements = Path('./requirements.txt')
     if requirements.exists() and requirements.is_file():
-        run(f'venv/bin/python -mpip install -r requirements.txt', timeout=args.timeout, user=args.username,
-            group=args.username)
+        run(f'venv/bin/python -mpip install -r requirements.txt', timeout=timeout, username=username,
+            groupname=username)
 
 
-def do_create_apache_config():
-    """ Create an apache config in /etc/httpd/conf.sites.d/{args.hostname}.conf. """
-    config_filename = f"/etc/httpd/conf.sites.d/{args.hostname}.conf"
-    if args.type == "static_site":
+def do_create_apache_config(config):
+    """ Create an apache config in /etc/httpd/conf.sites.d/{config.hostname}.conf. """
+    config_filename = f"/etc/httpd/conf.sites.d/{config.hostname}.conf"
+    if config.type == "static_site":
         config_content = f"""
-Use VHost {args.hostname}
+Use VHost {config.hostname}
 
 # vim: syntax=apache ts=4 sw=4 sts=4 sr noet
 """
-    elif args.type == "wsgi_site":
+    elif config.type == "wsgi_site":
         config_content = f"""
-#   PyApp $host           $title           $appdir                         $unixuser       $unixgroup
-Use PyApp {args.hostname} {args.project}   {args.home}/{args.projectdir}   {args.username} {args.username}
+#   PyApp $host             $title             $appdir                             $unixuser         $unixgroup
+Use PyApp {config.hostname} {config.project}   {config.home}/{config.projectdir}   {config.username} {config.username}
 
 # vim: syntax=apache ts=4 sw=4 sts=4 sr noet
 """
+    else:
+        raise ValueError(f"Unsupported type {config.type}")
+
     to_file(config_content, config_filename)
 
 
-def do_delete_apache_config():
-    """ Delete the apache config in /etc/httpd/conf.sites.d/{args.hostname}.conf. """
-    Path(f"/etc/httpd/conf.sites.d/{args.hostname}.conf").unlink(missing_ok=True)
+def do_delete_apache_config(hostname: str):
+    """ Delete the apache config in /etc/httpd/conf.sites.d/{hostname}.conf. """
+    Path(f"/etc/httpd/conf.sites.d/{hostname}.conf").unlink(missing_ok=True)
 
 
-def do_create_systemd_service():
-    """ Create a systemd service in /etc/systemd/system/{args.project}.service. """
-    config_filename = Path(f"/etc/systemd/system/{args.project}.service")
+def do_create_systemd_service(project: str, target: str, username: str):
+    """ Create a systemd service in /etc/systemd/system/{project}.service. """
+    config_filename = Path(f"/etc/systemd/system/{project}.service")
     config_content = f"""
 [Unit]
-Description={args.project}
+Description={project}
 After=syslog.target network.target
 
 [Service]
 Type=simple
-User={args.username}
-Group={args.username}
+User={username}
+Group={username}
 StandardOutput=journal
 StandardError=journal
-WorkingDirectory={args.home}/{args.projectdir}
-ExecStart={args.home}/{args.projectdir}/venv/bin/python3 {args.home}/{args.projectdir}/main.py
+WorkingDirectory={target}
+ExecStart={target}/venv/bin/python3 {target}/main.py
 Restart=always
-EnvironmentFile={args.home}/{args.projectdir}/.env
+EnvironmentFile={target}/.env
 
 [Install]
 WantedBy=multi-user.target
@@ -381,28 +397,28 @@ WantedBy=multi-user.target
     to_file(config_content, config_filename)
 
 
-def do_delete_systemd_service():
-    Path(f"/etc/systemd/system/{args.project}.service").unlink(missing_ok=True)
+def do_delete_systemd_service(project: str):
+    Path(f"/etc/systemd/system/{project}.service").unlink(missing_ok=True)
     run(f"systemctl daemon-reload")
 
 
-def do_create_syslog_config():
+def do_create_syslog_config(project: str):
     # Step 1: Make sure a log directory and empty log file exist
-    rsyslog_target = Path(f"/var/log/services/{args.project}.log")
+    rsyslog_target = Path(f"{LOG_DIR}/services/{project}.log")
 
-    rsyslog_target.parent.mkdir(parents=True, exist_ok=True, mode=0o750)
+    rsyslog_target.parent.mkdir(parents=True, exist_ok=True, mode=0o750)  # directory
     shutil.chown(rsyslog_target.parent, user="root", group="adm")
 
-    rsyslog_target.touch(mode=0o644, exist_ok=True)
+    rsyslog_target.touch(mode=0o644, exist_ok=True)  # empty log file
     shutil.chown(rsyslog_target, user="root", group="adm")
 
     # Step 2: Make sure a rsyslog config exists
-    rsyslog_filename = Path(f"/etc/rsyslog.d/{args.project}.conf")
+    rsyslog_filename = Path(f"/etc/rsyslog.d/{project}.conf")
     to_file(f'''
-template(name="{args.project}LogFormat" type="string" string="/var/log/services/{args.project}.log")
+template(name="{project}LogFormat" type="string" string="{rsyslog_target})
 
-if $!_SYSTEMD_UNIT == "{args.project}.service" then {{
-    action(type="omfile" DynaFile="{args.project}LogFormat")
+if $!_SYSTEMD_UNIT == "{project}.service" then {{
+    action(type="omfile" DynaFile="{project}LogFormat")
     stop
 }}
 ''', rsyslog_filename)
@@ -413,7 +429,7 @@ if $!_SYSTEMD_UNIT == "{args.project}.service" then {{
     if logrotate_config.exists() and logrotate_config.is_file():
         return  # nothing to do
 
-    to_file(f'''/var/log/services/*.log {{
+    to_file(f'''{LOG_DIR}/services/*.log {{
     compress
     missingok
     sharedscripts
@@ -425,36 +441,41 @@ if $!_SYSTEMD_UNIT == "{args.project}.service" then {{
 ''', logrotate_config, mode=0o644)
 
 
-def do_delete_syslog_config():
-    Path(f"/etc/rsyslog.d/{args.project}.conf").unlink(missing_ok=True)
+def do_delete_syslog_config(project: str):
+    Path(f"/etc/rsyslog.d/{project}.conf").unlink(missing_ok=True)
     run(f"systemctl restart rsyslog")
 
 
-def do_systemd_activation():
+def do_systemd_activation(project: str):
     run(f"systemctl daemon-reload")
-    run(f"systemctl enable {args.project}.service")
-    run(f"systemctl start {args.project}.service")
+    run(f"systemctl enable {project}.service")
+    run(f"systemctl start {project}.service")
 
 
-def do_systemd_deactivation():
-    run(f"systemctl stop {args.project}.service")
-    run(f"systemctl disable {args.project}.service")
+def do_systemd_deactivation(project: str):
+    run(f"systemctl stop {project}.service")
+    run(f"systemctl disable {project}.service")
 
 
-def do_create_site_symlink():
-    """ Symlink from /var/www/{args.hostname} to {args.home}/{args.projectdir}. """
-    from_path = Path(f"/var/www/{args.hostname}")
-    to_path = Path(args.home) / args.projectdir
+def do_create_site_symlink(hostname: str,
+                           home: Union[str, Path, os.PathLike, bytes],
+                           projectdir: Union[str, Path, os.PathLike, bytes]):
+    """ Symlink from /var/www/{hostname} to {home}/{projectdir}. """
+    if not isinstance(home, Path):
+        home = Path(home)
+    if not isinstance(projectdir, Path):
+        projectdir = Path(projectdir)
+    to_path = home / projectdir
 
-    from_path.symlink_to(to_path)
+    Path(f"/var/www/{hostname}").symlink_to(to_path)
 
 
-def do_delete_site_symlink():
-    """ Delete the symlink in /var/www/{args.hostname}. """
-    Path(f"/var/www/{args.hostname}").unlink(missing_ok=True)
+def do_delete_site_symlink(hostname: str):
+    """ Delete the symlink in /var/www/{hostname}. """
+    Path(f"/var/www/{hostname}").unlink(missing_ok=True)
 
 
-def github_as_https(github: str, subpath: str):
+def repo_as_https(github: str, subpath: str):
     """ Turn a git@github.com: url into a https url. """
 
     # git@github.com:vijfhuizen-c0derz/deploy.git
@@ -467,95 +488,76 @@ def github_as_https(github: str, subpath: str):
     return "https://github.com/" + github + "/" + subpath
 
 
-def show_deployment_banner():
+def show_deployment_banner(hostname: str, repo: str, pubkey: str):
     print(f"""
 We have deployed the site 
-{args.hostname}
+{hostname}
 from 
-{args.github}
- 
+{repo}
+
 But for the deploy program to be able to update, you need to add the sites' deploy key to their github.
 
-Go to to the sites github, 
-{github_as_https(args.github, "settings/keys/new")}
+Go to to the sites repo, 
+{repo_as_https(repo, "settings/keys/new")}
 and add
-{args.pubkey}
+{pubkey}
 """)
 
 
-def do_create():
+def do_create(config):
     """ Execute the necessary create steps. """
-    if args.type == "static_site":
-        do_create_user()
-        do_create_ssh_key()
-        do_create_projectfile()
-        do_git_clone()
-        do_create_apache_config()
-        do_create_site_symlink()
-        do_restart()
-        print(f"project {args.project} ({args.type}) created")
-        show_deployment_banner()
-    elif args.type == "wsgi_site":
-        do_create_user()
-        do_create_ssh_key()
-        do_create_projectfile()
-        do_git_clone()
-        do_python_setup()
-        do_create_apache_config()
-        do_create_site_symlink()
-        do_restart()
-        print(f"project {args.project} ({args.type}) created")
-        show_deployment_banner()
-    elif args.type == "discord_bot":
-        do_create_user()
-        do_create_ssh_key()
-        do_create_projectfile()
-        do_git_clone()
-        do_python_setup()
-        do_create_systemd_service()
-        do_systemd_activation()
-        do_create_syslog_config()
-        print(f"project {args.project} ({args.type}) created")
-        show_deployment_banner()
+
+    # In all cases, we create a user, a ssh-key and a projectfile, and check out the git repo.
+    config.home = do_create_user(config.username, config.project)
+    config.pubkey = do_create_ssh_key(config.username, config.home)
+    do_create_projectfile(config)
+    do_git_clone(target=Path(config.home) / config.projectdir, repo=config.github, username=config.username,
+                 timeout=config.timeout)
+
+    if config.type == "static_site":
+        do_create_apache_config(config)
+        do_create_site_symlink(config.hostname, config.home, config.projectdir)
+        do_httpd_restart()
+    elif config.type == "wsgi_site":
+        do_python_setup(Path(config.home) / config.projectdir, config.username, config.timeout)
+        do_create_apache_config(config)
+        do_create_site_symlink(config.hostname, config.home, config.projectdir)
+        do_httpd_restart()
+    elif config.type == "discord_bot":
+        do_python_setup(Path(config.home) / config.projectdir, config.username, config.timeout)
+        do_create_systemd_service(config.project, Path(config.home) / config.projectdir, username=config.username)
+        do_systemd_activation(config.project)
+        do_create_syslog_config(config.project)
     else:
-        raise RuntimeError(f"Unknown type {args.type}")
+        raise RuntimeError(f"Unknown type {config.type}")
+
+    # in all cases, we communicate success and show the deployment banner.
+    print(f"project {config.project} ({config.type}) created")
+    show_deployment_banner(config.hostname, config.github, config.pubkey)
 
 
-def do_delete():
+def do_delete(config):
     """ Execute the necessary delete steps. """
-    if args.type == "static_site":
+    if config.type == "static_site":
         # Clean up the apache
-        do_delete_site_symlink()
-        do_delete_apache_config()
-        do_restart()
-
-        # Now delete the user and the project
-        do_delete_user()
-        do_delete_project_file()
-        print(f"project {args.project} ({args.type}) deleted")
-    elif args.type == "wsgi_site":
+        do_delete_site_symlink(config.hostname)
+        do_delete_apache_config(config.hostname)
+    elif config.type == "wsgi_site":
         # Clean up the apache
-        do_delete_site_symlink()
-        do_delete_apache_config()
-        do_restart()
-
-        # Now delete the user and the project
-        do_delete_user()
-        do_delete_project_file()
-        print(f"project {args.project} ({args.type}) deleted")
-    elif args.type == "discord_bot":
+        do_delete_site_symlink(config.hostname)
+        do_delete_apache_config(config.hostname)
+    elif config.type == "discord_bot":
         # Clean up the service
-        do_systemd_deactivation()
-        do_delete_systemd_service()
-        do_delete_syslog_config()
-        do_restart()
-
-        # Now delete the user and the project
-        do_delete_user()
-        do_delete_project_file()
-        print(f"project {args.project} ({args.type}) deleted")
+        do_systemd_deactivation(config.project)
+        do_delete_systemd_service(config.project)
+        do_delete_syslog_config(config.project)
     else:
-        raise RuntimeError(f"Unknown type {args.type}")
+        raise RuntimeError(f"Unknown type {config.type}")
+
+    do_restart(config)
+    do_delete_user(config.username)
+    do_delete_project_file(config.project)
+    print(f"project {config.project} ({config.type}) deleted")
 
 
 def do_show_all_projects():
@@ -564,11 +566,11 @@ def do_show_all_projects():
         print(f"- {p.name}")
 
 
-def do_show_project():
+def do_show_project(project):
     """ Subcommand 'show <projectname>' """
-    project = PROJECT_DIR / args.project
+    project = PROJECT_DIR / project
     if not project.exists():
-        raise RuntimeError(f"project {args.project} does not exist")
+        raise RuntimeError(f"project {project} does not exist")
 
     with project.open() as f:
         config = json.load(f)
@@ -580,12 +582,12 @@ def do_show_project():
         print(f"- {k:<{max_key_len}}: {v}")
 
 
-def do_show():
+def do_show(config):
     """ Subcommand 'show' """
-    if args.project == "projects":
+    if config.project == "projects":
         do_show_all_projects()
     else:
-        do_show_project()
+        do_show_project(config.project)
 
 
 def collect_httpd_hostnames(directory: Path):
@@ -631,46 +633,51 @@ MDomain {all_hostnames}
     run("/usr/bin/systemctl status httpd.service")
 
 
-def do_restart():
-    if args.type in ["static_site", "wsgi_site"]:
+def do_restart(config):
+    if config.type in ["static_site", "wsgi_site"]:
         collect_httpd_hostnames(PROJECT_DIR)
         do_httpd_restart()
-    elif args.type == "discord_bot":
-        do_systemd_restart(args.project)
+    elif config.type == "discord_bot":
+        do_systemd_restart(config.project)
     else:
-        raise ValueError(f"Unknown type {args.type}")
+        raise ValueError(f"Unknown type {config.type}")
 
 
-def do_update():
+def do_update(config) -> None:
     """ Update the deployment git repository as needed.
         Local changes will be overwritten.
     """
 
     # Move into the right directory
-    repo = Path(args.home) / args.projectdir
-    os.chdir(repo)
+    target = Path(config.home) / config.projectdir
+    os.chdir(target)
 
     # Do we have a venv?
     venv = Path("./venv")
     requirements = Path("./requirements.txt")
 
     if venv.exists() and venv.is_dir() and requirements.exists() and requirements.is_file():
-        run("venv/bin/python -m pip install -r requirements.txt", user=args.username, group=args.username)
+        run("venv/bin/python -m pip install -r requirements.txt",
+            username=config.username, groupname=config.username, timeout=config.timeout)
 
     # Do we have a .git?
     git = Path(".git")
     if git.exists() and git.is_dir():
-        run("git reset --hard", user=args.username, group=args.username)
-        run("git pull --rebase", user=args.username, group=args.username)
+        run("git reset --hard",
+            username=config.username, groupname=config.username, timeout=config.timeout)  # local changes will be lost
+        run("git pull --rebase",
+            username=config.username, groupname=config.username, timeout=config.timeout)
+
+    return
 
 
-def do_logs():
-    if args.type in ["static_site", "wsgi_site"]:
-        os.execvp('bash', ['bash', '-c', f'tail -F /var/logs/httpd/{{access,error}}-{args.hostname}.log'])
-    elif args.type == "discord_bot":
-        os.execvp('bash', ['bash', '-c', f'tail -F /var/log/services/{args.project}.log'])
+def do_logs(config):
+    if config.type in ["static_site", "wsgi_site"]:
+        os.execvp('bash', ['bash', '-c', f'tail -F {LOG_DIR}/httpd/{{access,error}}-{config.hostname}.log'])
+    elif config.type == "discord_bot":
+        os.execvp('bash', ['bash', '-c', f'tail -F {LOG_DIR}/services/{config.project}.log'])
     else:
-        raise ValueError(f"Unknown type {args.type}")
+        raise ValueError(f"Unknown type {type}")
 
 
 def main():
@@ -679,17 +686,17 @@ def main():
 
     # operation is one of the things in VALID_OPERATIONS
     if args.operation == "create":
-        do_create()
+        do_create(args)
     elif args.operation == "delete":
-        do_delete()
+        do_delete(args)
     elif args.operation == "show":
-        do_show()
+        do_show(args)
     elif args.operation == "restart":
-        do_restart()
+        do_restart(args)
     elif args.operation == "update":
-        do_update()
+        do_update(args)
     elif args.operation == "logs":
-        do_logs()
+        do_logs(args)
     else:
         raise ValueError(f"This can never happen: {args.operation=}")
 
