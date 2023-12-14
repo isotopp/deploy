@@ -5,6 +5,7 @@
 #   Sudoable commands: apache_restart, pip_and_pull, pull_force
 
 import argparse
+import grp
 import json
 import os
 import pwd
@@ -14,7 +15,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, Any
 
 VALID_OPERATIONS = ["create", "delete", "show", "restart", "update", "logs"]
 VALID_PROJECT_TYPES = ["static_site", "wsgi_site", "discord_bot"]
@@ -23,6 +24,46 @@ PROJECT_DIR = Path("/etc/projects")
 THE_PYTHON = "python3.11"
 
 args: argparse.Namespace
+
+
+def run_as_user(*args, **kwargs) -> Any:
+    """ Run the function fn as the user and group given, returning the original result.
+
+    Example::
+
+        def keks(f: str):
+                k = Path(f"/tmp/{f}")
+                return
+
+        run_as_user(fn=keks, f="testfile", user="kris", group="kris")
+
+    """
+
+    # Extract the necessary fn, user and group
+    fn = kwargs.pop('fn')
+    user = kwargs.pop('user')
+    group = kwargs.pop('group')
+
+    # raises a KeyError, if user or group are unknown
+    uid = pwd.getpwnam(user).pw_uid
+    gid = grp.getgrnam(group).gr_gid
+
+    # remember the original ids
+    original_uid = os.getuid()
+    original_gid = os.getgid()
+
+    # Switch identity
+    os.setegid(gid)
+    os.seteuid(uid)
+
+    try:
+        result = fn(*args, **kwargs)
+    finally:
+        # Back to root
+        os.seteuid(original_uid)
+        os.setegid(original_gid)
+
+    return result
 
 
 def chown_tree(start: Path, username: str, groupname: Optional[str] = None, topdown=True):
@@ -312,17 +353,25 @@ def do_git_clone():
     chown_tree(repo, args.username, args.username)
 
 
-def do_python_setup():
+def _do_python_setup():
     """ Prepare a git checkout for Python usage. """
-    home = Path(args.home)
-    repo = home / args.projectdir
+    repo = Path(args.home) / args.projectdir
     os.chdir(repo)
 
     # Step 1: create venv
-    run(f'su -c "{THE_PYTHON} -mvenv venv" {args.username}')
+    run(f'{THE_PYTHON} -mvenv venv')
 
-    # Step 2: pip_and_pull
-    run(f'su -c "/usr/local/bin/pip_and_pull" {args.username}', timeout=args.timeout)
+    # Step 2: pip install -U pip wheel
+    run(f'venv/bin/python -mpip install -U pip wheel', timeout=args.timeout)
+
+    # Step 3: pip install -r requirements.txt
+    requirements = Path('./requirements.txt')
+    if requirements.exists() and requirements.is_file():
+        run(f'venv/bin/python -mpip install -r requirements.txt', timeout=args.timeout)
+
+
+def do_python_setup():
+    run_as_user(fn=_do_python_setup, user=args.username, group=args.username)
 
 
 def do_create_apache_config():
@@ -606,7 +655,8 @@ def do_systemd_restart(service: str):
 
 
 def do_httpd_restart():
-    """ Restart httpd (twice, because of certificate management) """
+    """ Collect domains, generate a ssldomain.conf amd run restart httpd twice, because of certificate management """
+
     the_hostname = socket.getfqdn()
     hostnames = [the_hostname]
     hostnames.extend(collect_httpd_hostnames(PROJECT_DIR))
@@ -633,7 +683,7 @@ def do_restart():
         raise ValueError(f"Unknown type {args.type}")
 
 
-def do_update():
+def _do_update():
     """ Update the deployment git repository as needed.
         Local changes will be overwritten.
     """
@@ -656,11 +706,16 @@ def do_update():
         run("git pull --rebase")
 
 
+def do_update():
+    """ Run the update as the project user. """
+    run_as_user(fn=_do_update, user=args.user, group=args.user)
+
+
 def do_logs():
     if args.type in ["static_site", "wsgi_site"]:
-        run(f"tail -F /var/logs/{{access,error}}-{args.hostname}.log")
+        os.execvp('bash', ['bash', '-c', f'tail -F /var/logs/httpd/{{access,error}}-{args.hostname}.log'])
     elif args.type == "discord_bot":
-        pass
+        os.execvp('bash', ['bash', '-c', f'tail -F /var/log/services/{args.project}.log'])
     else:
         raise ValueError(f"Unknown type {args.type}")
 
