@@ -5,7 +5,6 @@
 #   Sudoable commands: apache_restart, pip_and_pull, pull_force
 
 import argparse
-import grp
 import json
 import os
 import pwd
@@ -15,7 +14,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional, Union, Any
+from typing import Optional, Union
 
 VALID_OPERATIONS = ["create", "delete", "show", "restart", "update", "logs"]
 VALID_PROJECT_TYPES = ["static_site", "wsgi_site", "discord_bot"]
@@ -24,46 +23,6 @@ PROJECT_DIR = Path("/etc/projects")
 THE_PYTHON = "python3.11"
 
 args: argparse.Namespace
-
-
-def run_as_user(*args, **kwargs) -> Any:
-    """ Run the function fn as the user and group given, returning the original result.
-
-    Example::
-
-        def keks(f: str):
-                k = Path(f"/tmp/{f}")
-                return
-
-        run_as_user(fn=keks, f="testfile", user="kris", group="kris")
-
-    """
-
-    # Extract the necessary fn, user and group
-    fn = kwargs.pop('fn')
-    user = kwargs.pop('user')
-    group = kwargs.pop('group')
-
-    # raises a KeyError, if user or group are unknown
-    uid = pwd.getpwnam(user).pw_uid
-    gid = grp.getgrnam(group).gr_gid
-
-    # remember the original ids
-    original_uid = os.getuid()
-    original_gid = os.getgid()
-
-    # Switch identity
-    os.setegid(gid)
-    os.seteuid(uid)
-
-    try:
-        result = fn(*args, **kwargs)
-    finally:
-        # Back to root
-        os.seteuid(original_uid)
-        os.setegid(original_gid)
-
-    return result
 
 
 def chown_tree(start: Path, username: str, groupname: Optional[str] = None, topdown=True):
@@ -116,7 +75,9 @@ def operation(the_op: str) -> str:
 
 
 def run(cmd: str, *,
-        timeout: Optional[int] = None) -> int:
+        timeout: Optional[int] = None,
+        user: Optional[str] = None,
+        group: Optional[str] = None) -> int:
     """ Run a command, and report
     """
     if timeout is None:
@@ -124,7 +85,7 @@ def run(cmd: str, *,
     if args.debug:
         print(f"*** RUN: {cmd}")
 
-    result = subprocess.run(cmd, capture_output=True, shell=True, timeout=timeout)
+    result = subprocess.run(cmd, capture_output=True, shell=True, timeout=timeout, user=user, group=group)
 
     code = result.returncode
     stdout = result.stdout.decode('utf-8')
@@ -353,25 +314,22 @@ def do_git_clone():
     chown_tree(repo, args.username, args.username)
 
 
-def _do_python_setup():
+def do_python_setup():
     """ Prepare a git checkout for Python usage. """
     repo = Path(args.home) / args.projectdir
     os.chdir(repo)
 
     # Step 1: create venv
-    run(f'{THE_PYTHON} -mvenv venv')
+    run(f'{THE_PYTHON} -mvenv venv', user=args.username, group=args.username)
 
     # Step 2: pip install -U pip wheel
-    run(f'venv/bin/python -mpip install -U pip wheel', timeout=args.timeout)
+    run(f'venv/bin/python -mpip install -U pip wheel', timeout=args.timeout, user=args.username, group=args.username)
 
     # Step 3: pip install -r requirements.txt
     requirements = Path('./requirements.txt')
     if requirements.exists() and requirements.is_file():
-        run(f'venv/bin/python -mpip install -r requirements.txt', timeout=args.timeout)
-
-
-def do_python_setup():
-    run_as_user(fn=_do_python_setup, user=args.username, group=args.username)
+        run(f'venv/bin/python -mpip install -r requirements.txt', timeout=args.timeout, user=args.username,
+            group=args.username)
 
 
 def do_create_apache_config():
@@ -683,7 +641,7 @@ def do_restart():
         raise ValueError(f"Unknown type {args.type}")
 
 
-def _do_update():
+def do_update():
     """ Update the deployment git repository as needed.
         Local changes will be overwritten.
     """
@@ -697,18 +655,13 @@ def _do_update():
     requirements = Path("./requirements.txt")
 
     if venv.exists() and venv.is_dir() and requirements.exists() and requirements.is_file():
-        run("venv/bin/python -m pip install -r requirements.txt")
+        run("venv/bin/python -m pip install -r requirements.txt", user=args.username, group=args.username)
 
     # Do we have a .git?
     git = Path(".git")
     if git.exists() and git.is_dir():
-        run("git reset --hard")
-        run("git pull --rebase")
-
-
-def do_update():
-    """ Run the update as the project user. """
-    run_as_user(fn=_do_update, user=args.user, group=args.user)
+        run("git reset --hard", user=args.username, group=args.username)
+        run("git pull --rebase", user=args.username, group=args.username)
 
 
 def do_logs():
