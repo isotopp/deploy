@@ -269,7 +269,7 @@ def validate_or_load_opts():
     return
 
 
-def do_create_user(username: str, project: str, *, mode=0x711) -> str:
+def do_create_user(username: str, project: str, *, mode=0o711) -> str:
     """ Build a useradd command and run it.
         Returns the home of the user we just created.
      """
