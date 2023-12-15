@@ -623,6 +623,14 @@ def do_create(config):
     show_deployment_banner(config.hostname, config.github, config.pubkey)
 
 
+def show_undeployment_banner(repo: str):
+    debug(f"show_undeployment_banner({repo=}")
+
+    url = repo_as_https(repo, "settings/keys/new"
+
+    print(f'Do not forget to delete the deploy key at {url}.')
+
+
 def do_delete(config):
     """ Execute the necessary delete steps. """
     if config.type == "static_site":
@@ -641,10 +649,11 @@ def do_delete(config):
     else:
         raise RuntimeError(f"Unknown type {config.type}")
 
-    do_restart(config)
     do_delete_user(config.username)
     do_delete_project_file(config.project)
+    do_restart(config)  # first delete project_file, then do the restart -- otherwise we collect outdated domains
     print(f"project {config.project} ({config.type}) deleted")
+    show_undeployment_banner(config.github)
 
 
 def do_show_all_projects():
