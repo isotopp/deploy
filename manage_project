@@ -254,12 +254,12 @@ def validate_or_load_opts():
 
         if not args.hostname:
             args.hostname = f"{args.project}.snackbag.net"
-        if not check_hostname_valid(args.hostname):
+        if args.type != 'redirect_site' and not check_hostname_valid(args.hostname):
             raise ValueError(f"hostname {args.hostname} does not end in '.snackbag.net'")
 
-        if not args.github and args.type != 'redirect_site':
+        if args.type != 'redirect_site' and not args.github:
             raise ValueError(f"github is empty; specify --github <somegithub>")
-        if not check_github_valid(args.github) and args.type != 'redirect_site':
+        if args.type != 'redirect_site' and not check_github_valid(args.github):
             raise ValueError(f"github {args.github} is not a valid github url 'git@github.com:...")
 
         if not args.projectdir:
