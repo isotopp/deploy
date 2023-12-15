@@ -27,6 +27,19 @@ THE_PYTHON = '/usr/bin/python3.11'
 args: argparse.Namespace
 
 
+def delete_file(f: Union[str, Path, os.PathLike, bytes], *, missing_ok=True) -> None:
+    """ Unlink a file, with args.debug and args.dry_run support. """
+    if not isinstance(f, Path):
+        f = Path(f)
+    if args.debug > 1:
+        print(f"DEBUG: unlink(f={f})")
+
+    if args.dry_run:
+        return
+
+    f.unlink(missing_ok=missing_ok)
+
+
 def chown_tree(start: Union[str, Path, os.PathLike, bytes], username: str, groupname: Optional[str] = None,
                topdown=True):
     """ change the ownership of the file tree starting at `start` to
@@ -36,6 +49,10 @@ def chown_tree(start: Union[str, Path, os.PathLike, bytes], username: str, group
     """
     if not isinstance(start, Path):
         start = Path(start)
+    if args.debug > 1:
+        print(f"DEBUG: chown_tree({start=}, {username=}, {groupname=}, {topdown=})")
+    if args.dry_run:
+        return
 
     if groupname is None:
         groupname = username
@@ -58,6 +75,10 @@ def to_file(content: str, filename: Union[str, Path, os.PathLike, bytes], *,
             group: Optional[str] = None) -> None:
     if not isinstance(filename, Path):
         filename = Path(filename)
+    if args.debug > 1:
+        print(f"DEBUG: to_file({content=}, {filename=}, {mode=}, {owner=}, {group=})")
+    if args.dry_run:
+        return
 
     with open(filename, "wt") as f:
         f.write(content)
@@ -88,8 +109,10 @@ def run(cmd: str, *,
     """
     if timeout is None:
         timeout = 30
-    if args.debug:
-        print(f"*** RUN: {cmd}")
+    if args.debug > 1:
+        print(f"DEBUG: run({cmd=}, {timeout=} {username=} {groupname=}")
+    if args.dry_run:
+        return 0
 
     result = subprocess.run(cmd, capture_output=True, shell=True, timeout=timeout, user=username, group=groupname)
 
@@ -100,9 +123,9 @@ def run(cmd: str, *,
     if code != 0:
         print(f"*** ERROR: exit code={result.returncode}")
 
-    if stdout and args.debug:
+    if stdout and args.debug > 1:
         print(f"*** STDOUT: {stdout}")
-    if stderr and args.debug:
+    if stderr and args.debug > 1:
         print(f"*** STDERR: {stderr}")
 
     return code
@@ -157,7 +180,11 @@ def get_opts():
     parser.add_argument("operation", type=operation, help="one of show, create, delete, restart")
     parser.add_argument("project", help="a valid project name, or 'show projects'")
 
-    parser.add_argument("--debug", action="store_true", help="enable debug logging", default=False)
+    parser.add_argument("-d", "--debug",
+                        action="count", help="enable debug logging", default=0)
+    parser.add_argument("-n", "--dry-run",
+                        action="store_true", help="Do not actually perform any actions, just print them.",
+                        default=False)
 
     parser.add_argument("--type", help="one of static_site, wsgi_site or discord_bot")
     parser.add_argument("--hostname", help="hostname ending in .snackbag.net (in create)")
@@ -167,6 +194,8 @@ def get_opts():
     parser.add_argument("--timeout", type=int, default=30, help="Extend timeout for running commands (defaul: 30s)")
 
     args = parser.parse_args()
+    if args.debug > 0:
+        print(f"DEBUG: get_opts() -> {args=}")
 
 
 def load_project_config(project_name: str) -> dict:
@@ -180,6 +209,9 @@ def load_project_config(project_name: str) -> dict:
         raise FileNotFoundError(f"Project file not found: {project_filename}")
     except json.JSONDecodeError as e:
         raise ValueError(f"Error decoding JSON in project file: {e}")
+
+    if args.debug > 0:
+        print(f"DEBUG: load_project_config({project_name=}) -> {config=}")
 
     return config
 
@@ -240,9 +272,15 @@ def do_create_user(username: str, project: str, *, mode=0x711) -> str:
         Returns the home of the user we just created.
      """
 
+    if args.debug > 0:
+        print(f"DEBUG: do_create_user({username=}, {project=}, {mode=}")
+
     # user must be created
     comment = f"Project {project} owner"
     run(f'/usr/sbin/useradd -m -c "{comment}" {username}')
+
+    if args.dry_run:
+        return "/home/dry_run_user"
 
     u = pwd.getpwnam(username)
     home = u.pw_dir
@@ -253,8 +291,14 @@ def do_create_user(username: str, project: str, *, mode=0x711) -> str:
     return home
 
 
-def do_delete_user(username: str):
+def do_delete_user(username: str) -> int:
     """ Build the userdel command and run it."""
+    if args.debug > 0:
+        print(f"DEBUG: do_delete_yser({username=})")
+
+    if args.dry_run:
+        return 0
+
     code = run(f'/usr/sbin/userdel -r {username}')
 
     return code
@@ -267,9 +311,13 @@ def do_create_ssh_key(username: str, home: str) -> str:
         The id_deploykey.pub is returned (the key, not the path to the key).
      """
 
+    if args.debug > 0:
+        print(f"DEBUG: do_create_ssh_key({username=} {home=})")
+
     # Step 1: Create $HOME/.ssh
     sshdir = Path(home) / ".ssh"
-    sshdir.mkdir(0o700, parents=True, exist_ok=True)
+    if not args.dry_run:
+        sshdir.mkdir(0o700, parents=True, exist_ok=True)
 
     # Step 2: Create $HOME/.ssh/config
     deploykey = f"{sshdir}/id_deploykey"
@@ -285,7 +333,11 @@ Host github.com
 
     # Step 3: Create $HOME/.ssh/id_deploykey and save the pubkey
     run(f'ssh-keygen -t rsa -b 4096 -N "" -f {deploykey}')
-    pubkey = Path(f"{deploykey}.pub").read_text().strip()
+
+    if args.dry_run:
+        pubkey = "ssh-fake AAAARRGH!== fake@fakebox"
+    else:
+        pubkey = Path(f"{deploykey}.pub").read_text().strip()
 
     # Step 4: Chown all the files to the user.
     chown_tree(home, username=username)
@@ -295,6 +347,9 @@ Host github.com
 
 def do_create_projectfile(config):
     """ Create a project file in PROJECT_DIR. """
+    if args.debug > 0:
+        print(f"DEBUG: do_create_projectfile({config=})")
+
     project_filename = PROJECT_DIR / config.project
     project_desc = {
         "type": config.type,
@@ -312,7 +367,10 @@ def do_create_projectfile(config):
 
 def do_delete_project_file(project: str):
     """ Delete the project file in PROJECT_DIR. """
-    Path(PROJECT_DIR / project).unlink(missing_ok=True)
+    if args.debug > 0:
+        print(f"DEBUG: do_delete_project({project=})")
+
+    delete_file(PROJECT_DIR / project)
 
 
 def do_git_clone(target: Union[str, Path, os.PathLike, bytes], repo: str, username: str, timeout: int):
@@ -321,6 +379,8 @@ def do_git_clone(target: Union[str, Path, os.PathLike, bytes], repo: str, userna
     """
     if not isinstance(target, Path):
         target = Path(target)
+    if args.debug > 0:
+        print(f"DEBUG: do_git_clone({target=} {repo=} {username=} {timeout=})")
 
     run(f"git clone {repo} {target}", timeout=timeout, username=username, groupname=username)
 
@@ -329,7 +389,13 @@ def do_python_setup(target: Union[str, Path, os.PathLike, bytes], username: str,
     """ Prepare a git checkout for Python usage. """
     if not isinstance(target, Path):
         target = Path(target)
-    os.chdir(target)  # /home/keks/keks
+    if args.debug > 0:
+        print(f"DEBUG: do_python_setup({target= } {username=} {timeout=})")
+
+    if args.dry_run:
+        pass
+    else:
+        os.chdir(target)  # /home/keks/keks
 
     # Step 1: create venv
     run(f'{THE_PYTHON} -mvenv venv', username=username, groupname=username)
@@ -340,13 +406,16 @@ def do_python_setup(target: Union[str, Path, os.PathLike, bytes], username: str,
 
     # Step 3: pip install -r requirements.txt
     requirements = Path('./requirements.txt')
-    if requirements.exists() and requirements.is_file():
+    if args.dry_run or (requirements.exists() and requirements.is_file()):
         run(f'venv/bin/python -mpip install -r requirements.txt', timeout=timeout, username=username,
             groupname=username)
 
 
 def do_create_apache_config(config):
     """ Create an apache config in /etc/httpd/conf.sites.d/{config.hostname}.conf. """
+    if args.debug > 0:
+        print(f"DEBUG: do_create_apache_config({config=})")
+
     config_filename = f"/etc/httpd/conf.sites.d/{config.hostname}.conf"
     if config.type == "static_site":
         config_content = f"""
@@ -369,11 +438,17 @@ Use PyApp {config.hostname} {config.project}   {config.home}/{config.projectdir}
 
 def do_delete_apache_config(hostname: str):
     """ Delete the apache config in /etc/httpd/conf.sites.d/{hostname}.conf. """
-    Path(f"/etc/httpd/conf.sites.d/{hostname}.conf").unlink(missing_ok=True)
+    if args.debug > 0:
+        print(f"DEBUG: do_delete_apache_config({hostname=})")
+
+    delete_file(f"/etc/httpd/conf.sites.d/{hostname}.conf")
 
 
 def do_create_systemd_service(project: str, target: str, username: str):
     """ Create a systemd service in /etc/systemd/system/{project}.service. """
+    if args.debug > 0:
+        print(f"DEBUG: do_create_systemd_service({project=} {target=} {username=})")
+
     config_filename = Path(f"/etc/systemd/system/{project}.service")
     config_content = f"""
 [Unit]
@@ -398,19 +473,26 @@ WantedBy=multi-user.target
 
 
 def do_delete_systemd_service(project: str):
-    Path(f"/etc/systemd/system/{project}.service").unlink(missing_ok=True)
+    if args.debug > 0:
+        print(f"DEBUG: do_delete_systemd_service({project=}")
+
+    delete_file(f"/etc/systemd/system/{project}.service")
     run(f"systemctl daemon-reload")
 
 
 def do_create_syslog_config(project: str):
+    if args.debug > 0:
+        print(f"DEBUG: do_create_syslog_config({project=}")
+
     # Step 1: Make sure a log directory and empty log file exist
     rsyslog_target = Path(f"{LOG_DIR}/services/{project}.log")
-
-    rsyslog_target.parent.mkdir(parents=True, exist_ok=True, mode=0o750)  # directory
-    shutil.chown(rsyslog_target.parent, user="root", group="adm")
-
-    rsyslog_target.touch(mode=0o644, exist_ok=True)  # empty log file
-    shutil.chown(rsyslog_target, user="root", group="adm")
+    if args.dry_run:
+        pass
+    else:
+        rsyslog_target.parent.mkdir(parents=True, exist_ok=True, mode=0o750)  # directory
+        shutil.chown(rsyslog_target.parent, user="root", group="adm")
+        rsyslog_target.touch(mode=0o644, exist_ok=True)  # empty log file
+        shutil.chown(rsyslog_target, user="root", group="adm")
 
     # Step 2: Make sure a rsyslog config exists
     rsyslog_filename = Path(f"/etc/rsyslog.d/{project}.conf")
@@ -442,17 +524,26 @@ if $!_SYSTEMD_UNIT == "{project}.service" then {{
 
 
 def do_delete_syslog_config(project: str):
-    Path(f"/etc/rsyslog.d/{project}.conf").unlink(missing_ok=True)
+    if args.debug > 0:
+        print(f"DEBUG: do_delete_syslog_config({project=})")
+
+    delete_file(f"/etc/rsyslog.d/{project}.conf")
     run(f"systemctl restart rsyslog")
 
 
 def do_systemd_activation(project: str):
+    if args.debug > 0:
+        print(f"DEBUG: do_systemd_activation({project=})")
+
     run(f"systemctl daemon-reload")
     run(f"systemctl enable {project}.service")
     run(f"systemctl start {project}.service")
 
 
 def do_systemd_deactivation(project: str):
+    if args.debug > 0:
+        print(f"DEBUG: do_systemd_deactivation({project=}")
+
     run(f"systemctl stop {project}.service")
     run(f"systemctl disable {project}.service")
 
@@ -465,18 +556,28 @@ def do_create_site_symlink(hostname: str,
         home = Path(home)
     if not isinstance(projectdir, Path):
         projectdir = Path(projectdir)
-    to_path = home / projectdir
+    if args.debug > 0:
+        print(f"DEBUG: do_create_site_symlink({hostname=}, {home=}, {projectdir=}")
 
-    Path(f"/var/www/{hostname}").symlink_to(to_path)
+    to_path = home / projectdir
+    if args.dry_run:
+        pass
+    else:
+        Path(f"/var/www/{hostname}").symlink_to(to_path)
 
 
 def do_delete_site_symlink(hostname: str):
     """ Delete the symlink in /var/www/{hostname}. """
-    Path(f"/var/www/{hostname}").unlink(missing_ok=True)
+    if args.debug > 0:
+        print(f"DEBUG: do_delete_site_symlink({hostname=}")
+
+    delete_file(f"/var/www/{hostname}")
 
 
 def repo_as_https(github: str, subpath: str):
     """ Turn a git@github.com: url into a https url. """
+    if args.debug > 1:
+        print(f"DEBUG: repo_as_https({github=}, {subpath=})")
 
     # git@github.com:vijfhuizen-c0derz/deploy.git
     # https://github.com/vijfhuizen-c0derz/deploy
@@ -489,6 +590,9 @@ def repo_as_https(github: str, subpath: str):
 
 
 def show_deployment_banner(hostname: str, repo: str, pubkey: str):
+    if args.debug > 0:
+        print(f"DEBUG: show_deployment_banner({hostname=}, {repo=}, {pubkey=})")
+
     print(f"""
 We have deployed the site 
 {hostname}
