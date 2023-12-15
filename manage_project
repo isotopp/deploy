@@ -408,7 +408,7 @@ def do_python_setup(target: Union[str, Path, os.PathLike, bytes], username: str,
         run(f'venv/bin/python -mpip install -r requirements.txt', timeout=timeout, username=username,
             groupname=username)
 
-    to_file("", Path("./.env"), mode=0x644, username=username, groupname=username)
+    to_file("", Path("./.env"), mode=0x600, username=username, groupname=username)
 
 
 def do_create_apache_config(config):
