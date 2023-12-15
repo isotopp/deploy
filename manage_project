@@ -31,7 +31,7 @@ def debug(*nargs, **kwargs) -> None:
     level = kwargs.pop("level", 1)
     indent = "--" * level
     if args.debug > level:
-        print("{indent}>>> DEBUG: ", end='')
+        print(f"{indent}>>> DEBUG: ", end='')
         print(*nargs, **kwargs)
 
 
