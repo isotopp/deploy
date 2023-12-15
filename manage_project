@@ -270,7 +270,7 @@ def validate_or_load_opts():
 
 
 def do_create_user(username: str, project: str, *, mode=0o711) -> str:
-    """ Build a useradd command and run it.
+    """ Build an useradd command and run it.
         Returns the home of the user we just created.
      """
 
@@ -372,13 +372,16 @@ def do_delete_project_file(project: str):
 
 def do_git_clone(target: Union[str, Path, os.PathLike, bytes], repo: str, username: str, timeout: int):
     """ Perform a git clone of args.github into $HOME/args.projectdir
-        using the identity provided in $HOME/.ssh/config.
+        as root, then re-owner things to the username provided.
+
+        This is so that we do not need to rely on the deploykey, which is not configured, yet.
     """
     if not isinstance(target, Path):
         target = Path(target)
     debug(f"do_git_clone({target=} {repo=} {username=} {timeout=})")
 
-    run(f"git clone {repo} {target}", timeout=timeout, username=username, groupname=username)
+    run(f"git clone {repo} {target}", timeout=timeout)
+    chown_tree(target, username, username)
 
 
 def do_python_setup(target: Union[str, Path, os.PathLike, bytes], username: str, timeout: int):
@@ -594,12 +597,12 @@ and add
 def do_create(config):
     """ Execute the necessary create steps. """
 
-    # In all cases, we create a user, a ssh-key and a projectfile, and check out the git repo.
+    # In all cases, we create a user, an ssh-key and a projectfile, and check out the git repo.
     config.home = do_create_user(config.username, config.project)
     config.pubkey = do_create_ssh_key(config.username, config.home)
     do_create_projectfile(config)
-    do_git_clone(target=Path(config.home) / config.projectdir, repo=config.github, username=config.username,
-                 timeout=config.timeout)
+    do_git_clone(target=Path(config.home) / config.projectdir,
+                 repo=config.github, username=config.username, timeout=config.timeout)
 
     if config.type == "static_site":
         do_create_apache_config(config)
