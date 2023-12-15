@@ -29,8 +29,9 @@ args: argparse.Namespace
 
 def debug(*nargs, **kwargs) -> None:
     level = kwargs.pop("level", 1)
+    indent = "--" * level
     if args.debug > level:
-        print("*** DEBUG: ", end='')
+        print("{indent}>>> DEBUG: ", end='')
         print(*nargs, **kwargs)
 
 
@@ -595,6 +596,7 @@ and add
 
 def do_create(config):
     """ Execute the necessary create steps. """
+    debug(f"do_create()")
 
     # In all cases, we create a user, an ssh-key and a projectfile, and check out the git repo.
     config.home = do_create_user(config.username, config.project)
@@ -635,6 +637,8 @@ def show_undeployment_banner(repo: str):
 
 def do_delete(config):
     """ Execute the necessary delete steps. """
+    debug(f"do_delete()")
+
     if config.type == "static_site":
         # Clean up the apache
         do_delete_site_symlink(config.hostname)
@@ -682,6 +686,8 @@ def do_show_project(project):
 
 def do_show(config):
     """ Subcommand 'show' """
+    debug(f"do_show()")
+
     if config.project == "projects":
         do_show_all_projects()
     else:
@@ -706,14 +712,22 @@ def collect_httpd_hostnames(directory: Path):
 
 
 def do_systemd_restart(service: str):
-    run(f"/usr/bin/systemctl stop {service}.service")
-    time.sleep(0.5)
-    run(f"/usr/bin/systemctl start {service}.service")
-    time.sleep(0.5)
+    """ Restart a systemd service """
+    debug(f"do_systemd_restart({service=})", level=2)
+
+    servicefile = Path(f"/etc/systemd/system/{service}.service")
+    if servicefile.exists() and servicefile.is_file():
+        run(f"/usr/bin/systemctl stop {service}.service")
+        time.sleep(0.5)
+        run(f"/usr/bin/systemctl start {service}.service")
+        time.sleep(0.5)
+    else:
+        debug("Service {service} already deleted (no restart).", level=2)
 
 
 def do_httpd_restart():
     """ Collect domains, generate a ssldomain.conf amd run restart httpd twice, because of certificate management """
+    debug(f"do_httpd_restart()", level=1)
 
     the_hostname = socket.getfqdn()
     hostnames = [the_hostname]
@@ -725,6 +739,8 @@ MDPrivateKeys RSA 4096
 MDomain {all_hostnames}
 ''', Path("/etc/httpd/conf.d/ssldomain.conf"))
 
+    debug(f"hostnames collected: {all_hostnames=}", level=1)
+
     for _ in [1, 2]:
         do_systemd_restart("httpd")
 
@@ -732,6 +748,8 @@ MDomain {all_hostnames}
 
 
 def do_restart(config):
+    debug(f"do_restart()")
+
     if config.type in ["static_site", "wsgi_site"]:
         collect_httpd_hostnames(PROJECT_DIR)
         do_httpd_restart()
@@ -745,6 +763,7 @@ def do_update(config) -> None:
     """ Update the deployment git repository as needed.
         Local changes will be overwritten.
     """
+    debug(f"do_update()")
 
     # Move into the right directory
     target = Path(config.home) / config.projectdir
@@ -770,9 +789,13 @@ def do_update(config) -> None:
 
 
 def do_logs(config):
+    debug(f"do_logs()")
+
     if config.type in ["static_site", "wsgi_site"]:
+        debug(f"exec tail -F {LOG_DIR}/httpd/{{access,error}}-{config.hostname}.log")
         os.execvp('bash', ['bash', '-c', f'tail -F {LOG_DIR}/httpd/{{access,error}}-{config.hostname}.log'])
     elif config.type == "discord_bot":
+        debug(f"exec tail -F {LOG_DIR}/services/{config.project}.log")
         os.execvp('bash', ['bash', '-c', f'tail -F {LOG_DIR}/services/{config.project}.log'])
     else:
         raise ValueError(f"Unknown type {type}")
