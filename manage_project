@@ -77,11 +77,11 @@ def chown_tree(start: Union[str, Path, os.PathLike, bytes], username: str, group
 
 def to_file(content: str, filename: Union[str, Path, os.PathLike, bytes], *,
             mode: Optional[int] = None,
-            owner: Optional[str] = None,
-            group: Optional[str] = None) -> None:
+            username: Optional[str] = None,
+            groupname: Optional[str] = None) -> None:
     if not isinstance(filename, Path):
         filename = Path(filename)
-    debug(f"to_file({content=}, {filename=}, {mode=}, {owner=}, {group=})", level=1)
+    debug(f"to_file({content=}, {filename=}, {mode=}, {username=}, {groupname=})", level=1)
     if args.dry_run:
         return
 
@@ -91,8 +91,8 @@ def to_file(content: str, filename: Union[str, Path, os.PathLike, bytes], *,
     if mode is not None:
         os.chmod(filename, mode)
 
-    if owner is not None or group is not None:
-        shutil.chown(filename, owner, group)
+    if username is not None or groupname is not None:
+        shutil.chown(filename, username, groupname)
 
 
 def operation(the_op: str) -> str:
@@ -328,7 +328,7 @@ Host github.com
     IdentityFile {deploykey}
     IdentitiesOnly yes
     StrictHostKeyChecking accept-new
-""", sshdir / "config", mode=0o644, owner=username, group=username)
+""", sshdir / "config", mode=0o644, username=username, groupname=username)
 
     # Step 3: Create $HOME/.ssh/id_deploykey and save the pubkey
     run(f'ssh-keygen -t rsa -b 4096 -N "" -f {deploykey}')
@@ -407,6 +407,8 @@ def do_python_setup(target: Union[str, Path, os.PathLike, bytes], username: str,
     if args.dry_run or (requirements.exists() and requirements.is_file()):
         run(f'venv/bin/python -mpip install -r requirements.txt', timeout=timeout, username=username,
             groupname=username)
+
+    to_file("", Path("./.env"), mode=0x644, username=username, groupname=username)
 
 
 def do_create_apache_config(config):
