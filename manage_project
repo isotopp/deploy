@@ -626,7 +626,7 @@ def do_create(config):
 def show_undeployment_banner(repo: str):
     debug(f"show_undeployment_banner({repo=}")
 
-    url = repo_as_https(repo, "settings/keys/new"
+    url = repo_as_https(repo, "settings/keys/new")
 
     print(f'Do not forget to delete the deploy key at {url}.')
 
