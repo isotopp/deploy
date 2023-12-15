@@ -718,13 +718,13 @@ def do_systemd_restart(service: str):
     debug(f"do_systemd_restart({service=})", level=3)
 
     servicefile = Path(f"/etc/systemd/system/{service}.service")
-    if servicefile.exists() and servicefile.is_file():
+    if (servicefile.exists() and servicefile.is_file()) or service == "httpd":
         run(f"/usr/bin/systemctl stop {service}.service")
         time.sleep(0.5)
         run(f"/usr/bin/systemctl start {service}.service")
         time.sleep(0.5)
     else:
-        debug("Service {service} already deleted (no restart).", level=3)
+        debug(f"Service {service} already deleted (no restart).", level=3)
 
 
 def do_httpd_restart():
