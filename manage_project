@@ -197,7 +197,6 @@ def get_opts():
     parser.add_argument("--timeout", type=int, default=30, help="Extend timeout for running commands (defaul: 30s)")
 
     args = parser.parse_args()
-    print(f"{args.debug=}")
     debug(f"get_opts() -> {args=}")
 
 
