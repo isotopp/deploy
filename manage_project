@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 VALID_OPERATIONS = ['create', 'delete', 'show', 'restart', 'update', 'logs']
-VALID_PROJECT_TYPES = ['static_site', 'wsgi_site', 'discord_bot']
+VALID_PROJECT_TYPES = ['static_site', 'redirect_site', 'wsgi_site', 'discord_bot']
 
 PROJECT_DIR = Path('/etc/projects')
 LOG_DIR = Path('/var/log')
@@ -190,8 +190,9 @@ def get_opts():
                         action="store_true", help="Do not actually perform any actions, just print them.",
                         default=False)
 
-    parser.add_argument("--type", help="one of static_site, wsgi_site or discord_bot")
+    parser.add_argument("--type", help="one of static_site, redirect_site, wsgi_site or discord_bot")
     parser.add_argument("--hostname", help="hostname ending in .snackbag.net (in create)")
+    parser.add_argument("--to-hostname", "--to_hostname", help="hostname to redirect to (only for redirect_site)")
     parser.add_argument("--github", help="git@github.com:...")
     parser.add_argument("--username", help="a unix username to be created (in create)")
     parser.add_argument("--projectdir", help="a subdirectory name in that users home (in create)")
@@ -256,9 +257,9 @@ def validate_or_load_opts():
         if not check_hostname_valid(args.hostname):
             raise ValueError(f"hostname {args.hostname} does not end in '.snackbag.net'")
 
-        if not args.github:
+        if not args.github and args.type != 'redirect_site':
             raise ValueError(f"github is empty; specify --github <somegithub>")
-        if not check_github_valid(args.github):
+        if not check_github_valid(args.github) and args.type != 'redirect_site':
             raise ValueError(f"github {args.github} is not a valid github url 'git@github.com:...")
 
         if not args.projectdir:
@@ -359,6 +360,9 @@ def do_create_projectfile(config):
         "username": config.username,
         "home": config.home,
     }
+    if config.type == "redirect_site":
+        project_desc["to_hostame"] = config.to_hostname
+
     project_file_content = json.dumps(project_desc, indent=2, sort_keys=True) + "\n"
     to_file(project_file_content, project_filename)
 
@@ -428,6 +432,10 @@ Use VHost {config.hostname}
 Use PyApp {config.hostname} {config.project}   {config.home}/{config.projectdir}   {config.username} {config.username}
 
 # vim: syntax=apache ts=4 sw=4 sts=4 sr noet
+"""
+    elif config.type == "redirect_site":
+        config_content = f"""
+Use RedirectVHost {config.hostname} {config.to_hostname} 
 """
     else:
         raise ValueError(f"Unsupported type {config.type}")
@@ -600,33 +608,55 @@ def do_create(config):
     """ Execute the necessary create steps. """
     debug(f"do_create()")
 
-    # In all cases, we create a user, an ssh-key and a projectfile, and check out the git repo.
-    config.home = do_create_user(config.username, config.project)
-    config.pubkey = do_create_ssh_key(config.username, config.home)
-    do_create_projectfile(config)
-    do_git_clone(target=Path(config.home) / config.projectdir,
-                 repo=config.github, username=config.username, timeout=config.timeout)
-
     if config.type == "static_site":
+        config.home = do_create_user(config.username, config.project)
+        config.pubkey = do_create_ssh_key(config.username, config.home)
+        do_create_projectfile(config)
+        do_git_clone(target=Path(config.home) / config.projectdir,
+                     repo=config.github, username=config.username, timeout=config.timeout)
+
         do_create_apache_config(config)
         do_create_site_symlink(config.hostname, config.home, config.projectdir)
         do_httpd_restart()
+
+        print(f"project {config.project} ({config.type}) created")
+        show_deployment_banner(config.hostname, config.github, config.pubkey)
+    elif config.type == "redirect_site":
+        config.home = "/fake_home"
+        config.pubkey = "/fake_pubkey"
+        do_create_projectfile(config)
+        do_create_apache_config(config)
+        do_httpd_restart()
     elif config.type == "wsgi_site":
+        config.home = do_create_user(config.username, config.project)
+        config.pubkey = do_create_ssh_key(config.username, config.home)
+        do_create_projectfile(config)
+        do_git_clone(target=Path(config.home) / config.projectdir,
+                     repo=config.github, username=config.username, timeout=config.timeout)
+
         do_python_setup(Path(config.home) / config.projectdir, config.username, config.timeout)
         do_create_apache_config(config)
         do_create_site_symlink(config.hostname, config.home, config.projectdir)
         do_httpd_restart()
+
+        print(f"project {config.project} ({config.type}) created")
+        show_deployment_banner(config.hostname, config.github, config.pubkey)
     elif config.type == "discord_bot":
+        config.home = do_create_user(config.username, config.project)
+        config.pubkey = do_create_ssh_key(config.username, config.home)
+        do_create_projectfile(config)
+        do_git_clone(target=Path(config.home) / config.projectdir,
+                     repo=config.github, username=config.username, timeout=config.timeout)
+
         do_python_setup(Path(config.home) / config.projectdir, config.username, config.timeout)
         do_create_systemd_service(config.project, Path(config.home) / config.projectdir, username=config.username)
         do_systemd_activation(config.project)
         do_create_syslog_config(config.project)
+
+        print(f"project {config.project} ({config.type}) created")
+        show_deployment_banner(config.hostname, config.github, config.pubkey)
     else:
         raise RuntimeError(f"Unknown type {config.type}")
-
-    # in all cases, we communicate success and show the deployment banner.
-    print(f"project {config.project} ({config.type}) created")
-    show_deployment_banner(config.hostname, config.github, config.pubkey)
 
 
 def show_undeployment_banner(repo: str):
@@ -645,6 +675,8 @@ def do_delete(config):
         # Clean up the apache
         do_delete_site_symlink(config.hostname)
         do_delete_apache_config(config.hostname)
+    elif config.type == "redirect_site":
+        do_delete_apache_config(config.hostname)
     elif config.type == "wsgi_site":
         # Clean up the apache
         do_delete_site_symlink(config.hostname)
@@ -657,11 +689,13 @@ def do_delete(config):
     else:
         raise RuntimeError(f"Unknown type {config.type}")
 
-    do_delete_project_file(config.project) # first delete the project file
+    do_delete_project_file(config.project)  # first delete the project file
     do_restart(config)  # the restart, so that we do not collect the old domain
-    do_delete_user(config.username)  # then delete the user (only possible when nothing is running any more)
+    if config.type != "redirect_site":
+        do_delete_user(config.username)  # then delete the user (only possible when nothing is running any more)
     print(f"project {config.project} ({config.type}) deleted")
-    show_undeployment_banner(config.github)
+    if config.type != "redirect_site":
+        show_undeployment_banner(config.github)
 
 
 def do_show_all_projects():
@@ -752,7 +786,7 @@ MDomain {all_hostnames}
 def do_restart(config):
     debug(f"do_restart()")
 
-    if config.type in ["static_site", "wsgi_site"]:
+    if config.type in ["static_site", "redirect_site", "wsgi_site"]:
         collect_httpd_hostnames(PROJECT_DIR)
         do_httpd_restart()
     elif config.type == "discord_bot":
@@ -766,6 +800,9 @@ def do_update(config) -> None:
         Local changes will be overwritten.
     """
     debug(f"do_update()")
+
+    if config.type == "redirect_site":
+        return  # can't update what has no repo
 
     # Move into the right directory
     target = Path(config.home) / config.projectdir
@@ -793,7 +830,7 @@ def do_update(config) -> None:
 def do_logs(config):
     debug(f"do_logs()")
 
-    if config.type in ["static_site", "wsgi_site"]:
+    if config.type in ["static_site", "redirect_site", "wsgi_site"]:
         debug(f"exec tail -F {LOG_DIR}/httpd/{{access,error}}-{config.hostname}.log")
         os.execvp('bash', ['bash', '-c', f'tail -F {LOG_DIR}/httpd/{{access,error}}-{config.hostname}.log'])
     elif config.type == "discord_bot":
