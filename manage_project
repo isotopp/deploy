@@ -39,7 +39,7 @@ def delete_file(f: Union[str, Path, os.PathLike, bytes], *, missing_ok=True) -> 
     """ Unlink a file, with args.debug and args.dry_run support. """
     if not isinstance(f, Path):
         f = Path(f)
-    debug(f"unlink(f={f})", level=1)
+    debug(f"unlink(f={f})", level=2)
 
     if args.dry_run:
         return
@@ -56,7 +56,7 @@ def chown_tree(start: Union[str, Path, os.PathLike, bytes], username: str, group
     """
     if not isinstance(start, Path):
         start = Path(start)
-    debug(f"chown_tree({start=}, {username=}, {groupname=}, {topdown=})", level=1)
+    debug(f"chown_tree({start=}, {username=}, {groupname=}, {topdown=})", level=2)
     if args.dry_run:
         return
 
@@ -81,7 +81,7 @@ def to_file(content: str, filename: Union[str, Path, os.PathLike, bytes], *,
             groupname: Optional[str] = None) -> None:
     if not isinstance(filename, Path):
         filename = Path(filename)
-    debug(f"to_file({content=}, {filename=}, {mode=}, {username=}, {groupname=})", level=1)
+    debug(f"to_file({content=}, {filename=}, {mode=}, {username=}, {groupname=})", level=2)
     if args.dry_run:
         return
 
@@ -114,7 +114,7 @@ def run(cmd: str, *,
     """
     if timeout is None:
         timeout = 30
-    debug(f"run({cmd=}, {timeout=} {username=} {groupname=}", level=1)
+    debug(f"run({cmd=}, {timeout=} {username=} {groupname=}", level=2)
     if args.dry_run:
         return 0
 
@@ -492,7 +492,7 @@ def do_create_syslog_config(project: str):
     # Step 2: Make sure a rsyslog config exists
     rsyslog_filename = Path(f"/etc/rsyslog.d/{project}.conf")
     to_file(f'''
-template(name="{project}LogFormat" type="string" string="{rsyslog_target})
+template(name="{project}LogFormat" type="string" string="{rsyslog_target}")
 
 if $!_SYSTEMD_UNIT == "{project}.service" then {{
     action(type="omfile" DynaFile="{project}LogFormat")
@@ -715,7 +715,7 @@ def collect_httpd_hostnames(directory: Path):
 
 def do_systemd_restart(service: str):
     """ Restart a systemd service """
-    debug(f"do_systemd_restart({service=})", level=2)
+    debug(f"do_systemd_restart({service=})", level=3)
 
     servicefile = Path(f"/etc/systemd/system/{service}.service")
     if servicefile.exists() and servicefile.is_file():
@@ -724,12 +724,12 @@ def do_systemd_restart(service: str):
         run(f"/usr/bin/systemctl start {service}.service")
         time.sleep(0.5)
     else:
-        debug("Service {service} already deleted (no restart).", level=2)
+        debug("Service {service} already deleted (no restart).", level=3)
 
 
 def do_httpd_restart():
     """ Collect domains, generate a ssldomain.conf amd run restart httpd twice, because of certificate management """
-    debug(f"do_httpd_restart()", level=1)
+    debug(f"do_httpd_restart()", level=2)
 
     the_hostname = socket.getfqdn()
     hostnames = [the_hostname]
@@ -741,7 +741,7 @@ MDPrivateKeys RSA 4096
 MDomain {all_hostnames}
 ''', Path("/etc/httpd/conf.d/ssldomain.conf"))
 
-    debug(f"hostnames collected: {all_hostnames=}", level=1)
+    debug(f"hostnames collected: {all_hostnames=}", level=2)
 
     for _ in [1, 2]:
         do_systemd_restart("httpd")
