@@ -632,7 +632,7 @@ def do_create(config):
 def show_undeployment_banner(repo: str):
     debug(f"show_undeployment_banner({repo=}")
 
-    url = repo_as_https(repo, "settings/keys/new")
+    url = repo_as_https(repo, "settings/keys")
 
     print(f'Do not forget to delete the deploy key at {url}.')
 
@@ -657,9 +657,9 @@ def do_delete(config):
     else:
         raise RuntimeError(f"Unknown type {config.type}")
 
-    do_delete_user(config.username)
-    do_delete_project_file(config.project)
-    do_restart(config)  # first delete project_file, then do the restart -- otherwise we collect outdated domains
+    do_delete_project_file(config.project) # first delete the project file
+    do_restart(config)  # the restart, so that we do not collect the old domain
+    do_delete_user(config.username)  # then delete the user (only possible when nothing is running any more)
     print(f"project {config.project} ({config.type}) deleted")
     show_undeployment_banner(config.github)
 
