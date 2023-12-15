@@ -27,12 +27,18 @@ THE_PYTHON = '/usr/bin/python3.11'
 args: argparse.Namespace
 
 
+def debug(*args, **kwargs) -> None:
+    level = kwargs.pop("level", 1)
+    if args.debug > level:
+        print("*** DEBUG: ", end='')
+        print(*args, **kwargs)
+
+
 def delete_file(f: Union[str, Path, os.PathLike, bytes], *, missing_ok=True) -> None:
     """ Unlink a file, with args.debug and args.dry_run support. """
     if not isinstance(f, Path):
         f = Path(f)
-    if args.debug > 1:
-        print(f"DEBUG: unlink(f={f})")
+    debug(f"unlink(f={f})", level=1)
 
     if args.dry_run:
         return
@@ -49,8 +55,7 @@ def chown_tree(start: Union[str, Path, os.PathLike, bytes], username: str, group
     """
     if not isinstance(start, Path):
         start = Path(start)
-    if args.debug > 1:
-        print(f"DEBUG: chown_tree({start=}, {username=}, {groupname=}, {topdown=})")
+    debug(f"chown_tree({start=}, {username=}, {groupname=}, {topdown=})", level=1)
     if args.dry_run:
         return
 
@@ -75,8 +80,7 @@ def to_file(content: str, filename: Union[str, Path, os.PathLike, bytes], *,
             group: Optional[str] = None) -> None:
     if not isinstance(filename, Path):
         filename = Path(filename)
-    if args.debug > 1:
-        print(f"DEBUG: to_file({content=}, {filename=}, {mode=}, {owner=}, {group=})")
+    debug(f"to_file({content=}, {filename=}, {mode=}, {owner=}, {group=})", level=1)
     if args.dry_run:
         return
 
@@ -109,8 +113,7 @@ def run(cmd: str, *,
     """
     if timeout is None:
         timeout = 30
-    if args.debug > 1:
-        print(f"DEBUG: run({cmd=}, {timeout=} {username=} {groupname=}")
+    debug(f"run({cmd=}, {timeout=} {username=} {groupname=}", level=1)
     if args.dry_run:
         return 0
 
@@ -194,8 +197,7 @@ def get_opts():
     parser.add_argument("--timeout", type=int, default=30, help="Extend timeout for running commands (defaul: 30s)")
 
     args = parser.parse_args()
-    if args.debug > 0:
-        print(f"DEBUG: get_opts() -> {args=}")
+    debug(f"get_opts() -> {args=}")
 
 
 def load_project_config(project_name: str) -> dict:
@@ -210,8 +212,7 @@ def load_project_config(project_name: str) -> dict:
     except json.JSONDecodeError as e:
         raise ValueError(f"Error decoding JSON in project file: {e}")
 
-    if args.debug > 0:
-        print(f"DEBUG: load_project_config({project_name=}) -> {config=}")
+    debug(f"load_project_config({project_name=}) -> {config=}")
 
     return config
 
@@ -272,8 +273,7 @@ def do_create_user(username: str, project: str, *, mode=0x711) -> str:
         Returns the home of the user we just created.
      """
 
-    if args.debug > 0:
-        print(f"DEBUG: do_create_user({username=}, {project=}, {mode=}")
+    debug(f"do_create_user({username=}, {project=}, {mode=}")
 
     # user must be created
     comment = f"Project {project} owner"
@@ -293,8 +293,7 @@ def do_create_user(username: str, project: str, *, mode=0x711) -> str:
 
 def do_delete_user(username: str) -> int:
     """ Build the userdel command and run it."""
-    if args.debug > 0:
-        print(f"DEBUG: do_delete_yser({username=})")
+    debug(f"do_delete_user({username=})")
 
     if args.dry_run:
         return 0
@@ -311,8 +310,7 @@ def do_create_ssh_key(username: str, home: str) -> str:
         The id_deploykey.pub is returned (the key, not the path to the key).
      """
 
-    if args.debug > 0:
-        print(f"DEBUG: do_create_ssh_key({username=} {home=})")
+    debug(f"do_create_ssh_key({username=} {home=})")
 
     # Step 1: Create $HOME/.ssh
     sshdir = Path(home) / ".ssh"
@@ -347,8 +345,7 @@ Host github.com
 
 def do_create_projectfile(config):
     """ Create a project file in PROJECT_DIR. """
-    if args.debug > 0:
-        print(f"DEBUG: do_create_projectfile({config=})")
+    debug(f"do_create_projectfile({config=})")
 
     project_filename = PROJECT_DIR / config.project
     project_desc = {
@@ -367,8 +364,7 @@ def do_create_projectfile(config):
 
 def do_delete_project_file(project: str):
     """ Delete the project file in PROJECT_DIR. """
-    if args.debug > 0:
-        print(f"DEBUG: do_delete_project({project=})")
+    debug(f"do_delete_project({project=})")
 
     delete_file(PROJECT_DIR / project)
 
@@ -379,8 +375,7 @@ def do_git_clone(target: Union[str, Path, os.PathLike, bytes], repo: str, userna
     """
     if not isinstance(target, Path):
         target = Path(target)
-    if args.debug > 0:
-        print(f"DEBUG: do_git_clone({target=} {repo=} {username=} {timeout=})")
+    debug(f"do_git_clone({target=} {repo=} {username=} {timeout=})")
 
     run(f"git clone {repo} {target}", timeout=timeout, username=username, groupname=username)
 
@@ -389,8 +384,7 @@ def do_python_setup(target: Union[str, Path, os.PathLike, bytes], username: str,
     """ Prepare a git checkout for Python usage. """
     if not isinstance(target, Path):
         target = Path(target)
-    if args.debug > 0:
-        print(f"DEBUG: do_python_setup({target= } {username=} {timeout=})")
+    debug(f"do_python_setup({target= } {username=} {timeout=})")
 
     if args.dry_run:
         pass
@@ -413,8 +407,7 @@ def do_python_setup(target: Union[str, Path, os.PathLike, bytes], username: str,
 
 def do_create_apache_config(config):
     """ Create an apache config in /etc/httpd/conf.sites.d/{config.hostname}.conf. """
-    if args.debug > 0:
-        print(f"DEBUG: do_create_apache_config({config=})")
+    debug(f"do_create_apache_config({config=})")
 
     config_filename = f"/etc/httpd/conf.sites.d/{config.hostname}.conf"
     if config.type == "static_site":
@@ -438,16 +431,14 @@ Use PyApp {config.hostname} {config.project}   {config.home}/{config.projectdir}
 
 def do_delete_apache_config(hostname: str):
     """ Delete the apache config in /etc/httpd/conf.sites.d/{hostname}.conf. """
-    if args.debug > 0:
-        print(f"DEBUG: do_delete_apache_config({hostname=})")
+    debug(f"do_delete_apache_config({hostname=})")
 
     delete_file(f"/etc/httpd/conf.sites.d/{hostname}.conf")
 
 
 def do_create_systemd_service(project: str, target: str, username: str):
     """ Create a systemd service in /etc/systemd/system/{project}.service. """
-    if args.debug > 0:
-        print(f"DEBUG: do_create_systemd_service({project=} {target=} {username=})")
+    debug(f"do_create_systemd_service({project=} {target=} {username=})")
 
     config_filename = Path(f"/etc/systemd/system/{project}.service")
     config_content = f"""
@@ -473,16 +464,14 @@ WantedBy=multi-user.target
 
 
 def do_delete_systemd_service(project: str):
-    if args.debug > 0:
-        print(f"DEBUG: do_delete_systemd_service({project=}")
+    debug(f"do_delete_systemd_service({project=}")
 
     delete_file(f"/etc/systemd/system/{project}.service")
     run(f"systemctl daemon-reload")
 
 
 def do_create_syslog_config(project: str):
-    if args.debug > 0:
-        print(f"DEBUG: do_create_syslog_config({project=}")
+    debug(f"do_create_syslog_config({project=}")
 
     # Step 1: Make sure a log directory and empty log file exist
     rsyslog_target = Path(f"{LOG_DIR}/services/{project}.log")
@@ -524,16 +513,14 @@ if $!_SYSTEMD_UNIT == "{project}.service" then {{
 
 
 def do_delete_syslog_config(project: str):
-    if args.debug > 0:
-        print(f"DEBUG: do_delete_syslog_config({project=})")
+    debug(f"do_delete_syslog_config({project=})")
 
     delete_file(f"/etc/rsyslog.d/{project}.conf")
     run(f"systemctl restart rsyslog")
 
 
 def do_systemd_activation(project: str):
-    if args.debug > 0:
-        print(f"DEBUG: do_systemd_activation({project=})")
+    debug(f"do_systemd_activation({project=})")
 
     run(f"systemctl daemon-reload")
     run(f"systemctl enable {project}.service")
@@ -541,8 +528,7 @@ def do_systemd_activation(project: str):
 
 
 def do_systemd_deactivation(project: str):
-    if args.debug > 0:
-        print(f"DEBUG: do_systemd_deactivation({project=}")
+    debug(f"do_systemd_deactivation({project=}")
 
     run(f"systemctl stop {project}.service")
     run(f"systemctl disable {project}.service")
@@ -556,8 +542,7 @@ def do_create_site_symlink(hostname: str,
         home = Path(home)
     if not isinstance(projectdir, Path):
         projectdir = Path(projectdir)
-    if args.debug > 0:
-        print(f"DEBUG: do_create_site_symlink({hostname=}, {home=}, {projectdir=}")
+    debug(f"do_create_site_symlink({hostname=}, {home=}, {projectdir=}")
 
     to_path = home / projectdir
     if args.dry_run:
@@ -568,16 +553,14 @@ def do_create_site_symlink(hostname: str,
 
 def do_delete_site_symlink(hostname: str):
     """ Delete the symlink in /var/www/{hostname}. """
-    if args.debug > 0:
-        print(f"DEBUG: do_delete_site_symlink({hostname=}")
+    debug(f"do_delete_site_symlink({hostname=}")
 
     delete_file(f"/var/www/{hostname}")
 
 
 def repo_as_https(github: str, subpath: str):
     """ Turn a git@github.com: url into a https url. """
-    if args.debug > 1:
-        print(f"DEBUG: repo_as_https({github=}, {subpath=})")
+    debug(f"repo_as_https({github=}, {subpath=})", level=1)
 
     # git@github.com:vijfhuizen-c0derz/deploy.git
     # https://github.com/vijfhuizen-c0derz/deploy
@@ -590,8 +573,7 @@ def repo_as_https(github: str, subpath: str):
 
 
 def show_deployment_banner(hostname: str, repo: str, pubkey: str):
-    if args.debug > 0:
-        print(f"DEBUG: show_deployment_banner({hostname=}, {repo=}, {pubkey=})")
+    debug(f"show_deployment_banner({hostname=}, {repo=}, {pubkey=})")
 
     print(f"""
 We have deployed the site 
