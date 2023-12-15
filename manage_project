@@ -27,11 +27,11 @@ THE_PYTHON = '/usr/bin/python3.11'
 args: argparse.Namespace
 
 
-def debug(*args, **kwargs) -> None:
+def debug(*nargs, **kwargs) -> None:
     level = kwargs.pop("level", 1)
     if args.debug > level:
         print("*** DEBUG: ", end='')
-        print(*args, **kwargs)
+        print(*nargs, **kwargs)
 
 
 def delete_file(f: Union[str, Path, os.PathLike, bytes], *, missing_ok=True) -> None:
@@ -197,6 +197,7 @@ def get_opts():
     parser.add_argument("--timeout", type=int, default=30, help="Extend timeout for running commands (defaul: 30s)")
 
     args = parser.parse_args()
+    print(f"{args.debug=}")
     debug(f"get_opts() -> {args=}")
 
 
