@@ -493,10 +493,10 @@ def do_create_syslog_config(project: str):
     if args.dry_run:
         pass
     else:
-        rsyslog_target.parent.mkdir(parents=True, exist_ok=True, mode=0o750)  # directory
-        shutil.chown(rsyslog_target.parent, user="root", group="adm")
-        rsyslog_target.touch(mode=0o644, exist_ok=True)  # empty log file
-        shutil.chown(rsyslog_target, user="root", group="adm")
+        p = rsyslog_target.parent / "OLD"  # /var/log/services/OLD and parents.
+        p.mkdir(parents=True, exist_ok=True, mode=0o700)
+        rsyslog_target.touch(mode=0o600, exist_ok=True)  # empty log file
+        chown_tree(rsyslog_target.parent, username="root", groupname="adm")
 
     # Step 2: Make sure a rsyslog config exists
     rsyslog_filename = Path(f"/etc/rsyslog.d/{project}.conf")
@@ -515,11 +515,15 @@ if $!_SYSTEMD_UNIT == "{project}.service" then {{
     if logrotate_config.exists() and logrotate_config.is_file():
         return  # nothing to do
 
-    to_file(f'''{LOG_DIR}/services/*.log {{
+    to_file(f'''/{LOG_DIR}/services/*.log {{
     compress
-    missingok
-    sharedscripts
+    create 0600 root root
+    daily
     delaycompress
+    missingok
+    olddir /var/log/services/OLD
+    rotate 30
+    sharedscripts
     postrotate
         /usr/bin/systemctl -s HUP kill rsyslog.service >/dev/null 2>&1 || true
     endscript
