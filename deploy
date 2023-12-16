@@ -108,6 +108,7 @@ def operation(the_op: str) -> str:
 
 def run(cmd: str, *,
         timeout: Optional[int] = None,
+        show=False,
         username: Optional[str] = None,
         groupname: Optional[str] = None) -> int:
     """ Run a command, and report
@@ -127,9 +128,9 @@ def run(cmd: str, *,
     if code != 0:
         print(f"*** ERROR: exit code={result.returncode}")
 
-    if stdout and args.debug > 1:
+    if stdout and (args.debug >= 1 or show):
         print(f"*** STDOUT: {stdout}")
-    if stderr and args.debug > 1:
+    if stderr and (args.debug >= 1 or show):
         print(f"*** STDERR: {stderr}")
 
     return code
@@ -753,9 +754,9 @@ def do_systemd_restart(service: str):
 
     servicefile = Path(f"/etc/systemd/system/{service}.service")
     if (servicefile.exists() and servicefile.is_file()) or service == "httpd":
-        run(f"/usr/bin/systemctl stop {service}.service")
+        run(f"/usr/bin/systemctl stop {service}.service", show=True)
         time.sleep(0.5)
-        run(f"/usr/bin/systemctl start {service}.service")
+        run(f"/usr/bin/systemctl start {service}.service", show=True)
         time.sleep(0.5)
     else:
         debug(f"Service {service} already deleted (no restart).", level=3)
@@ -780,7 +781,7 @@ MDomain {all_hostnames}
     for _ in [1, 2]:
         do_systemd_restart("httpd")
 
-    run("/usr/bin/systemctl status httpd.service")
+    run("/usr/bin/systemctl status httpd.service", show=True)
 
 
 def do_restart(config):
@@ -822,7 +823,7 @@ def do_update(config) -> None:
         run("git reset --hard",
             username=config.username, groupname=config.username, timeout=config.timeout)  # local changes will be lost
         run("git pull --rebase",
-            username=config.username, groupname=config.username, timeout=config.timeout)
+            username=config.username, groupname=config.username, timeout=config.timeout, show=True)
 
     return
 
