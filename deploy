@@ -1,9 +1,5 @@
 #! /usr/bin/env python3.11
 
-# TODO
-# sudo setup für deploy.
-#   Sudoable commands: apache_restart, pip_and_pull, pull_force
-
 import argparse
 import json
 import os
@@ -16,8 +12,22 @@ import time
 from pathlib import Path
 from typing import Optional, Union
 
-VALID_OPERATIONS = ['create', 'delete', 'show', 'restart', 'update', 'logs']
-VALID_PROJECT_TYPES = ['static_site', 'redirect_site', 'wsgi_site', 'discord_bot']
+VALID_OPERATIONS = [
+    'create',
+    'delete',
+    'logs',
+    'restart',
+    'show',
+    'start',
+    'stop',
+    'update',
+]
+VALID_PROJECT_TYPES = [
+    'redirect_site',
+    'static_site',
+    'wsgi_site',
+    'discord_bot',
+]
 
 PROJECT_DIR = Path('/etc/projects')
 LOG_DIR = Path('/var/log')
@@ -182,7 +192,7 @@ def get_opts():
     global args
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("operation", type=operation, help="one of show, create, delete, restart")
+    parser.add_argument("operation", type=operation, help="one of show, create, delete, update, restart, logs, start, stop")
     parser.add_argument("project", help="a valid project name, or 'show projects'")
 
     parser.add_argument("-d", "--debug",
@@ -752,6 +762,28 @@ def collect_httpd_hostnames(directory: Path):
     return hostnames
 
 
+def do_systemd_stop(service: str):
+    """ Stop a systemd service """
+    debug(f"do_systemd_stop({service=}", level=3)
+
+    servicefile = Path(f"/etc/systemd/system/{service}.service")
+    if (servicefile.exists() and servicefile.is_file()) or service == "httpd":
+        run(f"systemctl stop {service}.service", show=True)
+    else:
+        debug(f"Warning: {service} does not exist.")
+
+
+def do_systemd_start(service: str):
+    """ Start a systemd service """
+    debug(f"do_systemd_start({service=}", level=3)
+
+    servicefile = Path(f"/etc/systemd/system/{service}.service")
+    if (servicefile.exists() and servicefile.is_file()) or service == "httpd":
+        run(f"systemctl start {service}.service", show=True)
+    else:
+        debug(f"Warning: {service} does not exist.")
+
+
 def do_systemd_restart(service: str):
     """ Restart a systemd service """
     debug(f"do_systemd_restart({service=})", level=3)
@@ -796,6 +828,28 @@ def do_restart(config):
         do_httpd_restart()
     elif config.type == "discord_bot":
         do_systemd_restart(config.project)
+    else:
+        raise ValueError(f"Unknown type {config.type}")
+
+
+def do_start(config):
+    debug(f"do_start({}config.project=}, {config.type=})")
+
+    if config.type in ["static_site", "redirect_site", "wsgi_site"]:
+        do_systemd_start("httpd")
+    elif config.type == "discord_bot":
+        do_systemd_start(config.project)
+    else:
+        raise ValueError(f"Unknown type {config.type}")
+
+
+def do_stop(config):
+    debug(f"do_stop({config.project=}, {config.type=})")
+
+    if config.type in ["static_site", "redirect_site", "wsgi_site"]:
+        do_systemd_stop("httpd")
+    elif config.type == "discord_bot":
+        do_systemd_stop(config.project)
     else:
         raise ValueError(f"Unknown type {config.type}")
 
@@ -856,6 +910,10 @@ def main():
         do_delete(args)
     elif args.operation == "show":
         do_show(args)
+    elif args.operation == "start":
+        do_start(args)
+    elif args.operation == "stop":
+        do_stop(args)
     elif args.operation == "restart":
         do_restart(args)
     elif args.operation == "update":
