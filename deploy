@@ -833,7 +833,7 @@ def do_restart(config):
 
 
 def do_start(config):
-    debug(f"do_start({}config.project=}, {config.type=})")
+    debug(f"do_start({config.project=}, {config.type=})")
 
     if config.type in ["static_site", "redirect_site", "wsgi_site"]:
         do_systemd_start("httpd")
