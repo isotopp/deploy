@@ -4,5 +4,5 @@
 mysqldump --skip-extended-insert --routines --triggers --single-transaction --all-databases |
   gzip -9 > /home/steam/minecraft/database.sql.gz
 # --exclude-caches -> do not backup directories that contain a file CACHEDIR.TAG
-tar -C / -czf --exclude-caches -  home /var/www /etc
+tar -C / -cz --exclude-caches -f -  home /var/www /etc
 
