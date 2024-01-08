@@ -206,7 +206,7 @@ def get_opts():
     parser.add_argument("--type", help="one of static_site, redirect_site, proxy, wsgi_site or discord_bot")
     parser.add_argument("--hostname", help="hostname ending in .snackbag.net (in create)")
     parser.add_argument("--to-hostname", "--to_hostname", help="hostname to redirect to (only for redirect_site)")
-    parser.add_argument("--port", type=int, default=443, help="port to internally proxy to (only for proxy)")
+    parser.add_argument("--port", type=int, help="port to internally proxy to (only for proxy)")
     parser.add_argument("--github", help="git@github.com:...")
     parser.add_argument("--username", help="a unix username to be created (in create)")
     parser.add_argument("--projectdir", help="a subdirectory name in that users home (in create)")
@@ -731,7 +731,7 @@ def do_delete(config):
     if config.type not in ["redirect_site", "proxy"]:
         do_delete_user(config.username)  # then delete the user (only possible when nothing is running any more)
     print(f"project {config.project} ({config.type}) deleted")
-    if config.type not in ["redirect_site", "proxy]"]:
+    if config.type not in ["redirect_site", "proxy"]:
         show_undeployment_banner(config.github)
 
 
