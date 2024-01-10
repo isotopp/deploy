@@ -283,8 +283,10 @@ class StaticSite(Deployable):
         return
 
     def logs(self, config):
-        debug(f'exec tail -F {LOG_DIR}/httpd/{{access,error}}-{config["hostname"]}.log')
-        os.execvp('bash', ['bash', '-c', f'tail -F {LOG_DIR}/httpd/{{access,error}}-{config["hostname"]}.log'])
+        debug(f"")
+        hostname = config['hostname']
+        debug(f'exec tail -F {LOG_DIR}/httpd/{{access,error}}-{hostname}.log')
+        os.execvp('bash', ['bash', '-c', f'tail -F {LOG_DIR}/httpd/{{access,error}}-{hostname}.log'])
 
 
 class WsgiSite(Deployable):
@@ -1226,25 +1228,29 @@ def site_factory(config: dict) -> Deployable:
 
 
 def main():
-    get_opts()
-
     try:
+        get_opts()
+
         # show is special, we have no instance
         if args.operation == "show":
             do_show(vars(args))
             sys.exit(0)
 
+        config = vars(args)
         if args.operation == "create":
-            site = site_factory(vars(args))
+            # create is special, we need to make an initial instance
+            site = site_factory(config)
         else:
-            site = do_load_project(vars(args))
+            # make instance from saved project and simulate args
+            site = do_load_project(config)
+            config = site.project
 
         try:
             operation = getattr(site, args.operation)
         except AttributeError:
             print(f"Invalid operation: {site} has no operation {args.operation}")
             sys.exit(1)
-        operation(vars(args))
+        operation(config)
     except Exception as e:
         if args.debug > 0:
             traceback.print_exc()
