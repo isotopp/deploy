@@ -423,91 +423,91 @@ class WsgiSite(Deployable):
         to_file(config_content, config_filename)
 
 
-def create(self, config: dict):
-    """ create a WsgiSite:
+    def create(self, config: dict):
+        """ create a WsgiSite:
 
-        - create a user and gather the user home directory
-        - create a ssh keypair and gather the pubkey
-        - write out the projectfile
-        - clone the github into the users home
-        - perform Python setup (venv, requirements)
-        - write out the apache config
-        - symlink the checked out github as an apache documentroot
-        - restart the apache to pick up the config change
-    """
-    debug(f"{self.project=}")
-    p = self.project
+            - create a user and gather the user home directory
+            - create a ssh keypair and gather the pubkey
+            - write out the projectfile
+            - clone the github into the users home
+            - perform Python setup (venv, requirements)
+            - write out the apache config
+            - symlink the checked out github as an apache documentroot
+            - restart the apache to pick up the config change
+        """
+        debug(f"{self.project=}")
+        p = self.project
 
-    p['home'] = create_user(p['username'], p['project'])
-    p['pubkey'] = create_ssh_key(p['username'], p['home'])
+        p['home'] = create_user(p['username'], p['project'])
+        p['pubkey'] = create_ssh_key(p['username'], p['home'])
 
-    create_projectfile(p)  # self.project now has all necessary details
+        create_projectfile(p)  # self.project now has all necessary details
 
-    target = Path(p['home']) / p['project']
-    clone_git(target=target,
-              repo=p['github'],
-              username=p['username'],
-              timeout=args.timeout)
+        target = Path(p['home']) / p['project']
+        clone_git(target=target,
+                  repo=p['github'],
+                  username=p['username'],
+                  timeout=args.timeout)
 
-    do_python_setup(target=target, username=p['username'], timeout=args.timeout)
-    self._create_apache_config()
-    create_site_symlink(p['hostname'], p['home'], p['project'])
-    httpd_restart()
+        do_python_setup(target=target, username=p['username'], timeout=args.timeout)
+        self._create_apache_config()
+        create_site_symlink(p['hostname'], p['home'], p['project'])
+        httpd_restart()
 
-    print(f"project {p['project']} ({p['type']}) created")
-    show_deployment_banner(p['hostname'], p['github'], p['pubkey'])
-
-
-def delete(self, config: dict):
-    """ delete a WsgiSite:
-
-        - delete the site symlink
-        - delete the apache config file
-        - delete the project file
-
-        Only now
-
-        - perform the restart (so that we do not collect the old domain)
-        - restart the apache to pick up the new config
-        - finally delete the unix user (including all contents of the home directory)
-    """
-    debug(f"{self.project=}")
-    p = self.project
-
-    delete_site_symlink(p['hostname'])
-    delete_apache_config(p['hostname'])
-
-    delete_project_file(p['project'])  # first delete the project file
-
-    httpd_restart()
-    delete_user(p['username'])  # then delete the user (only possible when nothing is running any more)
-
-    print(f"project {p['project']} ({p['type']}) deleted")
-    show_undeployment_banner(p['github'])
+        print(f"project {p['project']} ({p['type']}) created")
+        show_deployment_banner(p['hostname'], p['github'], p['pubkey'])
 
 
-def update(self, config):
-    debug("")
-    target = Path(self.project['home']) / self.project['project']
-    os.chdir(target)
+    def delete(self, config: dict):
+        """ delete a WsgiSite:
 
-    venv = Path("./venv")
-    requirements = Path("./requirements.txt")
+            - delete the site symlink
+            - delete the apache config file
+            - delete the project file
 
-    if venv.exists() and venv.is_dir() and requirements.exists() and requirements.is_file():
-        run("venv/bin/python -m pip install -r requirements.txt",
-            username=config['username'], groupname=config['username'], timeout=config['timeout'])
+            Only now
 
-    # Do we have a .git?
-    git = Path(".git")
-    if git.exists() and git.is_dir():
-        run("git reset --hard",
-            username=config['username'], groupname=config['username'],
-            timeout=config['timeout'])  # local changes will be lost
-        run("git pull --rebase",
-            username=config['username'], groupname=config['username'], timeout=config['timeout'], show=True)
+            - perform the restart (so that we do not collect the old domain)
+            - restart the apache to pick up the new config
+            - finally delete the unix user (including all contents of the home directory)
+        """
+        debug(f"{self.project=}")
+        p = self.project
 
-    print(f"deploy restart {p['project']} # still necessary to pick up the changes")
+        delete_site_symlink(p['hostname'])
+        delete_apache_config(p['hostname'])
+
+        delete_project_file(p['project'])  # first delete the project file
+
+        httpd_restart()
+        delete_user(p['username'])  # then delete the user (only possible when nothing is running any more)
+
+        print(f"project {p['project']} ({p['type']}) deleted")
+        show_undeployment_banner(p['github'])
+
+
+    def update(self, config):
+        debug("")
+        target = Path(self.project['home']) / self.project['project']
+        os.chdir(target)
+
+        venv = Path("./venv")
+        requirements = Path("./requirements.txt")
+
+        if venv.exists() and venv.is_dir() and requirements.exists() and requirements.is_file():
+            run("venv/bin/python -m pip install -r requirements.txt",
+                username=config['username'], groupname=config['username'], timeout=config['timeout'])
+
+        # Do we have a .git?
+        git = Path(".git")
+        if git.exists() and git.is_dir():
+            run("git reset --hard",
+                username=config['username'], groupname=config['username'],
+                timeout=config['timeout'])  # local changes will be lost
+            run("git pull --rebase",
+                username=config['username'], groupname=config['username'], timeout=config['timeout'], show=True)
+
+        print(f"deploy restart {p['project']} # still necessary to pick up the changes")
 
 
 class DiscordBot(Deployable):
