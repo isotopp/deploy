@@ -247,44 +247,44 @@ class StaticSite(Deployable):
         print(f"project {p['project']} ({p['type']}) deleted")
         show_undeployment_banner(p['github'])
 
-        def start(self, config):
-            debug("")
-            do_systemd_start("httpd")
+    def start(self, config):
+        debug("")
+        do_systemd_start("httpd")
 
-        def stop(self, config):
-            debug("")
-            do_systemd_stop("httpd")
+    def stop(self, config):
+        debug("")
+        do_systemd_stop("httpd")
 
-        def restart(self, config):
-            debug("")
-            httpd_restart()
+    def restart(self, config):
+        debug("")
+        httpd_restart()
 
-        def update(self, config):
-            debug("")
-            target = Path(self.project['home']) / self.project['project']
-            os.chdir(target)
+    def update(self, config):
+        debug("")
+        target = Path(self.project['home']) / self.project['project']
+        os.chdir(target)
 
-            venv = Path("./venv")
-            requirements = Path("./requirements.txt")
+        venv = Path("./venv")
+        requirements = Path("./requirements.txt")
 
-            if venv.exists() and venv.is_dir() and requirements.exists() and requirements.is_file():
-                run("venv/bin/python -m pip install -r requirements.txt",
-                    username=config['username'], groupname=config['username'], timeout=config['timeout'])
+        if venv.exists() and venv.is_dir() and requirements.exists() and requirements.is_file():
+            run("venv/bin/python -m pip install -r requirements.txt",
+                username=config['username'], groupname=config['username'], timeout=config['timeout'])
 
-            # Do we have a .git?
-            git = Path(".git")
-            if git.exists() and git.is_dir():
-                run("git reset --hard",
-                    username=config['username'], groupname=config['username'],
-                    timeout=config['timeout'])  # local changes will be lost
-                run("git pull --rebase",
-                    username=config['username'], groupname=config['username'], timeout=config['timeout'], show=True)
+        # Do we have a .git?
+        git = Path(".git")
+        if git.exists() and git.is_dir():
+            run("git reset --hard",
+                username=config['username'], groupname=config['username'],
+                timeout=config['timeout'])  # local changes will be lost
+            run("git pull --rebase",
+                username=config['username'], groupname=config['username'], timeout=config['timeout'], show=True)
 
-            return
+        return
 
-        def logs(self, config):
-            debug(f'exec tail -F {LOG_DIR}/httpd/{{access,error}}-{config["hostname"]}.log)
-            os.execvp('bash', ['bash', '-c', f'tail -F {LOG_DIR}/httpd/{{access,error}}-{config["hostname"]}.log'])
+    def logs(self, config):
+        debug(f'exec tail -F {LOG_DIR}/httpd/{{access,error}}-{config["hostname"]}.log')
+        os.execvp('bash', ['bash', '-c', f'tail -F {LOG_DIR}/httpd/{{access,error}}-{config["hostname"]}.log'])
 
 
 class WsgiSite(Deployable):
