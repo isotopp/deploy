@@ -1,6 +1,8 @@
 #! /usr/bin/env python3.11
 
 import argparse
+import importlib
+import inspect
 import json
 import os
 import pwd
@@ -9,6 +11,7 @@ import socket
 import subprocess
 import sys
 import time
+import traceback
 from pathlib import Path
 from typing import Optional, Union
 
@@ -22,13 +25,13 @@ VALID_OPERATIONS = [
     'stop',
     'update',
 ]
-VALID_PROJECT_TYPES = [
-    'redirect_site',
-    'static_site',
-    'wsgi_site',
-    'discord_bot',
-    'proxy',
-]
+VALID_PROJECT_TYPES = {
+    'redirect_site': 'RedirectSite',
+    'static_site': 'StaticSite',
+    'wsgi_site': 'WsgiSite',
+    'discord_bot': 'DiscordBot',
+    'proxy': 'ProxySite',
+}
 
 PROJECT_DIR = Path('/etc/projects')
 LOG_DIR = Path('/var/log')
@@ -36,6 +39,252 @@ LOG_DIR = Path('/var/log')
 THE_PYTHON = '/usr/bin/python3.11'
 
 args: argparse.Namespace
+
+
+class Deployable:
+    """
+    Impure abstract superclass for all the various site types we have.
+    Each subclass must implement the following methods:
+
+    - ``create()``: creates the site (and the projectfile)
+    - ``delete()``: deletes the site (and the projectfile)
+    - ``show()``: display the projectfile
+    - ``start()``: stop the service
+    - ``stop()``: stop the service
+    - ``update()``: update the github, if one exists
+    - ``restart()``: restart the service after updating
+    - ``logs()``: show the services logs
+
+    """
+
+    def __init__(self, projectname):
+        self.project = {
+            'project': projectname
+        }
+
+    def __repr__(self):
+        return f'Deployable({self.project})'
+
+    def _not_implemented(self):
+        stack = inspect.stack()
+        caller_method = stack[1].function  # our caler
+        current_class = self.__class__.__name__
+        raise NotImplementedError(f'class {current_class} does not implement {caller_method}()')
+
+    # The set of methods that every subclass of Deployable has to implement
+    def create(self, config):
+        self._not_implemented()
+
+    def delete(self, config):
+        self._not_implemented()
+
+    def start(self, config):
+        self._not_implemented()
+
+    def stop(self, config):
+        self._not_implemented()
+
+    def update(self, config):
+        self._not_implemented()
+
+    def restart(self, config):
+        self._not_implemented()
+
+    def logs(self, config):
+        self._not_implemented()
+
+    # argument validation
+    def validate_args(self):
+        """ validate the argus for the class (common mandatory and optional args)
+            and put then into self.project.
+        """
+        self.mandatory('type')
+
+    def mandatory(self, optname):
+        """ make sure a mandatory arg is given, and copy it into self.project """
+        d = vars(args)
+        if d.get(optname, None) is None:
+            raise argparse.ArgumentTypeError(f'missing mandatory option {optname}')
+
+        self.project[optname] = d[optname]
+
+    def optional(self, optname, default_optvalue):
+        """ check if an optional arg is given and copy it into self.project """
+        d = vars(args)
+        if d.get(optname, None) is not None:
+            self.project[optname] = d[optname]
+        else:
+            self.project[optname] = default_optvalue
+
+
+class RedirectSite(Deployable):
+    """ create a redirect site '''hostname''' which redirects to '''to_hostname'''
+
+        '''deploy create wwwexamplecom --type redirect_site --hostname www.example.com --to-hostname example.com'''
+
+    """
+
+    def __init__(self, projectname):
+        super().__init__(projectname)
+        self.project['type'] = 'redirect_site'
+        self.validate_additional_args()
+
+    def validate_additional_args(self):
+        self.mandatory('hostname')
+        self.mandatory('to_hostname')
+
+
+class ProxySite(Deployable):
+    """" create a proxy_site '''hostname''' which redirects to local port '''port'''
+
+       '''deploy create grafana --type proxy_site --hostname grafana.example.com --port 3000'''
+    """
+
+    def __init__(self, projectname):
+        super().__init__(projectname)
+        self.project['type'] = 'proxy_site'
+        self.validate_additional_args()
+
+    def validate_additional_args(self):
+        self.mandatory('hostname')
+        self.mandatory('port')
+
+
+class StaticSite(Deployable):
+    """ create a static_site '''hostname''' which hosts content.
+
+        '''deploy create staticsite --type static_site \
+                  --hostname static.example.com \
+                  --github git@github.com:example-com/empty-site.git \
+                  \
+                  --username static \
+                  static
+        '''
+    """
+
+    def __init__(self, projectname):
+        self.project = {}
+        self.project['type'] = 'static_site'
+
+        super().__init__(projectname)
+        self.validate_args()
+
+    def validate__args(self):
+        super().validate_args()
+
+        self.mandatory('hostname')
+        self.mandatory('github')
+        self.optional('username', self.project['project'])
+
+    def _create_apache_config(self):
+        """ Create an apache config in /etc/httpd/conf.sites.d/{config.hostname}.conf. """
+        debug(f"create_apache_config()")
+
+        config_filename = f"/etc/httpd/conf.sites.d/{self.project['hostname']}.conf"
+        config_content = "# autogenerated by /usr/local/bin/deploy, overwritten on next run.\n" \
+                         f"Use VHost {self.project['hostname']}\n" \
+                         "# vim: syntax=apache ts=4 sw=4 sts=4 sr noet\n"
+        to_file(config_content, config_filename)
+
+    def create(self, config: dict):
+        """ create a static_site:
+
+            - create a user and gather the user home directory
+            - create a ssh keypair and gather the pubkey
+            - write out the projectfile
+            - clone the github into the users home
+            - write out the apache config
+            - symlink the checked out github as an apache documentroot
+            - restart the apache to pick up the config change
+        """
+        debug(f"create({self.project})")
+        p = self.project
+
+        p['home'] = create_user(p['username]'], p['project'])
+        p['pubkey'] = create_ssh_key(p['username'], p['home'])
+
+        create_projectfile(p)  # self.project now has all necessary details
+
+        clone_git(target=Path(p['home']) / p['project'],
+                  repo=p['github'],
+                  username=p['username'],
+                  timeout=args.timeout)
+
+        self._create_apache_config()
+        create_site_symlink(p['hostname'], p['home'], p['projectdir'])
+        httpd_restart()
+
+        print(f"project {p['project']} ({p['type']}) created")
+        show_deployment_banner(p['hostname'], p['github'], p['pubkey'])
+
+    def delete_project(self, config: dict):
+        """ delete a StaticSite:
+
+            - delete the site symlink
+            - delete the apache config file
+            - delete the project file
+
+            Only now
+
+            - perform the restart (so that we do not collect the old domain)
+            - restart the apache to pick up the new config
+            - finally delete the unix user (including all contents of the home directory)
+        """
+        debug(f"delete({self.project})")
+        p = self.project
+
+        delete_site_symlink(p['hostname'])
+        delete_apache_config(p['hostname'])
+
+        delete_project_file(p['project'])  # first delete the project file
+
+        httpd_restart()
+        delete_user(p['username'])  # then delete the user (only possible when nothing is running any more)
+
+        print(f"project {p['project']} ({p['type']}) deleted")
+        show_undeployment_banner(p['github'])
+
+
+class WsgiSite(Deployable):
+    """ create a wsgi_site '''hostname''' which runs a Python application.
+
+    '''deploy create wsgisite --type wsgi_site \
+              --hostname wsgisite.example.com \
+              --github git@github.com:example-com/wsgisite.git \
+              \
+              --username wsgisite \
+              wsgisite
+    '''
+    """
+
+    def __init__(self, projectname):
+        super().__init__(projectname)
+        self.validate_additional_args()
+
+    def validate_additional_args(self):
+        self.mandatory('hostname')
+        self.mandatory('github')
+        self.optional('username')
+
+
+class DiscordBot(Deployable):
+    """ create a '''discord_bot''' which runs as a service.
+
+        '''deploy create discordbot --type discord_bot \
+                  --github git@github.com:examplecom/discordbot.git \
+                  \
+                  --username discordbot \
+                  discordbot
+        '''
+    """
+
+    def __init__(self, projectname):
+        super().__init__(projectname)
+        self.validate_additional_args()
+
+    def validate_additional_args(self):
+        self.mandatory('github')
+        self.optional('username')
 
 
 def debug(*nargs, **kwargs) -> None:
@@ -149,7 +398,7 @@ def run(cmd: str, *,
 
 def check_type(the_type: str) -> bool:
     """ ArgumentParser validator for project types. """
-    if the_type in VALID_PROJECT_TYPES:
+    if the_type in VALID_PROJECT_TYPES.keys():
         return True
 
     return False
@@ -216,36 +465,27 @@ def get_opts():
     debug(f"get_opts() -> {args=}")
 
 
-def load_project_config(project_name: str) -> dict:
-    """ Load a project JSON into a dictionary. """
-    project_filename = PROJECT_DIR / project_name
+def do_load_project(projectname: str) -> Deployable:
+    """ load a projectfile from PROJECT_DIR and return it as a Deployable subclass """
+    debug(f"do_load_project({projectname})")
+
+    project_filename = PROJECT_DIR / projectname
+    try:
+        project_file_content = project_filename.read_text()
+    except FileNotFoundError as e:
+        print(f"can't read project file {project_filename}: {e}")
+        sys.exit(1)
 
     try:
-        with open(project_filename, "rt") as project_file:
-            config = json.load(project_file)
-    except FileNotFoundError:
-        raise FileNotFoundError(f"Project file not found: {project_filename}")
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Error decoding JSON in project file: {e}")
+        project = json.loads(project_file_content)
+    except json.decoder.JSONDecodeError as e:
+        print(f"can't decode project file {project_filename}: {e}")
+        sys.exit(1)
 
-    debug(f"load_project_config({project_name=}) -> {config=}")
+    site = site_factory(project)
+    site.project = project
 
-    return config
-
-
-def do_load_project():
-    """ Load a project file, except for "show projects", which does not need this. """
-    # special case
-    if args.operation == "show" and args.project == "projects":
-        return
-
-    if not check_project_exists(args.project):
-        raise ValueError(f"project {args.project} does not exist")
-
-    project_config = load_project_config(args.project)
-
-    for k, v in project_config.items():
-        setattr(args, k, v)
+    return site
 
 
 def validate_or_load_opts():
@@ -289,7 +529,7 @@ def validate_or_load_opts():
     return
 
 
-def do_create_user(username: str, project: str, *, mode=0o711) -> str:
+def create_user(username: str, project: str, *, mode=0o711) -> str:
     """ Build an useradd command and run it.
         Returns the home of the user we just created.
      """
@@ -312,7 +552,7 @@ def do_create_user(username: str, project: str, *, mode=0o711) -> str:
     return home
 
 
-def do_delete_user(username: str) -> int:
+def delete_user(username: str) -> int:
     """ Build the userdel command and run it."""
     debug(f"do_delete_user({username=})")
 
@@ -324,7 +564,7 @@ def do_delete_user(username: str) -> int:
     return code
 
 
-def do_create_ssh_key(username: str, home: str) -> str:
+def create_ssh_key(username: str, home: str) -> str:
     """ Create a new ssh key (id_deploykey) for the user.
         We also create the .ssh directory, as needed, and add a .ssh/config.
 
@@ -364,38 +604,23 @@ Host github.com
     return pubkey
 
 
-def do_create_projectfile(config):
+def create_projectfile(config: dict):
     """ Create a project file in PROJECT_DIR. """
     debug(f"do_create_projectfile({config=})")
 
-    project_filename = PROJECT_DIR / config.project
-    project_desc = {
-        "type": config.type,
-        "project": config.project,
-        "hostname": config.hostname,
-        "github": config.github,
-        "pubkey": config.pubkey,
-        "projectdir": config.projectdir,
-        "username": config.username,
-        "home": config.home,
-    }
-    if config.type == "redirect_site":
-        project_desc["to_hostame"] = config.to_hostname
-    if config.type == "proxy":
-        project_desc["port"] = config.port
-
-    project_file_content = json.dumps(project_desc, indent=2, sort_keys=True) + "\n"
+    project_filename = PROJECT_DIR / config['project']
+    project_file_content = json.dumps(config, indent=2, sort_keys=True) + "\n"
     to_file(project_file_content, project_filename)
 
 
-def do_delete_project_file(project: str):
+def delete_project_file(project: str):
     """ Delete the project file in PROJECT_DIR. """
     debug(f"do_delete_project({project=})")
 
     delete_file(PROJECT_DIR / project)
 
 
-def do_git_clone(target: Union[str, Path, os.PathLike, bytes], repo: str, username: str, timeout: int):
+def clone_git(target: Union[str, Path, os.PathLike, bytes], repo: str, username: str, timeout: int):
     """ Perform a git clone of args.github into $HOME/args.projectdir
         as root, then re-owner things to the username provided.
 
@@ -436,7 +661,7 @@ def do_python_setup(target: Union[str, Path, os.PathLike, bytes], username: str,
     to_file("", Path("./.env"), mode=0o600, username=username, groupname=username)
 
 
-def do_create_apache_config(config):
+def create_apache_config(config: dict):
     """ Create an apache config in /etc/httpd/conf.sites.d/{config.hostname}.conf. """
     debug(f"do_create_apache_config({config=})")
 
@@ -469,7 +694,7 @@ Use ProxyVHost {config.hostname} {config.port}
     to_file(config_content, config_filename)
 
 
-def do_delete_apache_config(hostname: str):
+def delete_apache_config(hostname: str):
     """ Delete the apache config in /etc/httpd/conf.sites.d/{hostname}.conf. """
     debug(f"do_delete_apache_config({hostname=})")
 
@@ -578,9 +803,9 @@ def do_systemd_deactivation(project: str):
     run(f"systemctl disable {project}.service")
 
 
-def do_create_site_symlink(hostname: str,
-                           home: Union[str, Path, os.PathLike, bytes],
-                           projectdir: Union[str, Path, os.PathLike, bytes]):
+def create_site_symlink(hostname: str,
+                        home: Union[str, Path, os.PathLike, bytes],
+                        projectdir: Union[str, Path, os.PathLike, bytes]):
     """ Symlink from /var/www/{hostname} to {home}/{projectdir}. """
     if not isinstance(home, Path):
         home = Path(home)
@@ -595,7 +820,7 @@ def do_create_site_symlink(hostname: str,
         Path(f"/var/www/{hostname}").symlink_to(to_path)
 
 
-def do_delete_site_symlink(hostname: str):
+def delete_site_symlink(hostname: str):
     """ Delete the symlink in /var/www/{hostname}. """
     debug(f"do_delete_site_symlink({hostname=}")
 
@@ -639,50 +864,50 @@ def do_create(config):
     debug(f"do_create()")
 
     if config.type == "static_site":
-        config.home = do_create_user(config.username, config.project)
-        config.pubkey = do_create_ssh_key(config.username, config.home)
-        do_create_projectfile(config)
-        do_git_clone(target=Path(config.home) / config.projectdir,
-                     repo=config.github, username=config.username, timeout=config.timeout)
+        config.home = create_user(config.username, config.project)
+        config.pubkey = create_ssh_key(config.username, config.home)
+        create_projectfile(config)
+        clone_git(target=Path(config.home) / config.projectdir,
+                  repo=config.github, username=config.username, timeout=config.timeout)
 
-        do_create_apache_config(config)
-        do_create_site_symlink(config.hostname, config.home, config.projectdir)
-        do_httpd_restart()
+        create_apache_config(config)
+        create_site_symlink(config.hostname, config.home, config.projectdir)
+        httpd_restart()
 
         print(f"project {config.project} ({config.type}) created")
         show_deployment_banner(config.hostname, config.github, config.pubkey)
     elif config.type == "redirect_site":
         config.home = "/fake_home"
         config.pubkey = "/fake_pubkey"
-        do_create_projectfile(config)
-        do_create_apache_config(config)
-        do_httpd_restart()
+        create_projectfile(config)
+        create_apache_config(config)
+        httpd_restart()
     elif config.type == "proxy":
         config.home = "/fake_home"
         config.pubkey = "/fake_pubkey"
-        do_create_projectfile(config)
-        do_create_apache_config(config)
-        do_httpd_restart()
+        create_projectfile(config)
+        create_apache_config(config)
+        httpd_restart()
     elif config.type == "wsgi_site":
-        config.home = do_create_user(config.username, config.project)
-        config.pubkey = do_create_ssh_key(config.username, config.home)
-        do_create_projectfile(config)
-        do_git_clone(target=Path(config.home) / config.projectdir,
-                     repo=config.github, username=config.username, timeout=config.timeout)
+        config.home = create_user(config.username, config.project)
+        config.pubkey = create_ssh_key(config.username, config.home)
+        create_projectfile(config)
+        clone_git(target=Path(config.home) / config.projectdir,
+                  repo=config.github, username=config.username, timeout=config.timeout)
 
         do_python_setup(Path(config.home) / config.projectdir, config.username, config.timeout)
-        do_create_apache_config(config)
-        do_create_site_symlink(config.hostname, config.home, config.projectdir)
-        do_httpd_restart()
+        create_apache_config(config)
+        create_site_symlink(config.hostname, config.home, config.projectdir)
+        httpd_restart()
 
         print(f"project {config.project} ({config.type}) created")
         show_deployment_banner(config.hostname, config.github, config.pubkey)
     elif config.type == "discord_bot":
-        config.home = do_create_user(config.username, config.project)
-        config.pubkey = do_create_ssh_key(config.username, config.home)
-        do_create_projectfile(config)
-        do_git_clone(target=Path(config.home) / config.projectdir,
-                     repo=config.github, username=config.username, timeout=config.timeout)
+        config.home = create_user(config.username, config.project)
+        config.pubkey = create_ssh_key(config.username, config.home)
+        create_projectfile(config)
+        clone_git(target=Path(config.home) / config.projectdir,
+                  repo=config.github, username=config.username, timeout=config.timeout)
 
         do_python_setup(Path(config.home) / config.projectdir, config.username, config.timeout)
         do_create_systemd_service(config.project, Path(config.home) / config.projectdir, username=config.username)
@@ -709,16 +934,16 @@ def do_delete(config):
 
     if config.type == "static_site":
         # Clean up the apache
-        do_delete_site_symlink(config.hostname)
-        do_delete_apache_config(config.hostname)
+        delete_site_symlink(config.hostname)
+        delete_apache_config(config.hostname)
     elif config.type == "redirect_site":
-        do_delete_apache_config(config.hostname)
+        delete_apache_config(config.hostname)
     elif config.type == "proxy":
-        do_delete_apache_config(config.hostname)
+        delete_apache_config(config.hostname)
     elif config.type == "wsgi_site":
         # Clean up the apache
-        do_delete_site_symlink(config.hostname)
-        do_delete_apache_config(config.hostname)
+        delete_site_symlink(config.hostname)
+        delete_apache_config(config.hostname)
     elif config.type == "discord_bot":
         # Clean up the service
         do_systemd_deactivation(config.project)
@@ -727,10 +952,10 @@ def do_delete(config):
     else:
         raise RuntimeError(f"Unknown type {config.type}")
 
-    do_delete_project_file(config.project)  # first delete the project file
-    do_restart(config)  # the restart, so that we do not collect the old domain
+    delete_project_file(config.project)  # first delete the project file
+    restart(config)  # the restart, so that we do not collect the old domain
     if config.type not in ["redirect_site", "proxy"]:
-        do_delete_user(config.username)  # then delete the user (only possible when nothing is running any more)
+        delete_user(config.username)  # then delete the user (only possible when nothing is running any more)
     print(f"project {config.project} ({config.type}) deleted")
     if config.type not in ["redirect_site", "proxy"]:
         show_undeployment_banner(config.github)
@@ -738,6 +963,9 @@ def do_delete(config):
 
 def do_show_all_projects():
     """ Subcommand 'show projects' """
+    if not PROJECT_DIR.is_dir():
+        raise RuntimeError(f"directory {PROJECT_DIR} is not present?")
+
     for p in sorted(list(PROJECT_DIR.glob("*"))):
         print(f"- {p.name}")
 
@@ -758,14 +986,14 @@ def do_show_project(project):
         print(f"- {k:<{max_key_len}}: {v}")
 
 
-def do_show(config):
+def do_show(config: dict):
     """ Subcommand 'show' """
     debug(f"do_show()")
 
-    if config.project == "projects":
+    if config['project'] == "projects":
         do_show_all_projects()
     else:
-        do_show_project(config.project)
+        do_show_project(config['project'])
 
 
 def collect_httpd_hostnames(directory: Path):
@@ -821,7 +1049,7 @@ def do_systemd_restart(service: str):
         debug(f"Service {service} already deleted (no restart).", level=3)
 
 
-def do_httpd_restart():
+def httpd_restart():
     """ Collect domains, generate a ssldomain.conf amd run restart httpd twice, because of certificate management """
     debug(f"do_httpd_restart()", level=2)
 
@@ -843,12 +1071,12 @@ MDomain {all_hostnames}
     run("/usr/bin/systemctl status httpd.service", show=True)
 
 
-def do_restart(config):
+def restart(config):
     debug(f"do_restart()")
 
     if config.type in ["static_site", "redirect_site", "wsgi_site", "proxy"]:
         collect_httpd_hostnames(PROJECT_DIR)
-        do_httpd_restart()
+        httpd_restart()
     elif config.type == "discord_bot":
         do_systemd_restart(config.project)
     else:
@@ -922,29 +1150,48 @@ def do_logs(config):
         raise ValueError(f"Unknown type {type}")
 
 
+def site_factory(config: dict) -> Deployable:
+    if config.get('type') is None:
+        raise ValueError(f"must specify a valid --type ")
+    if config.get('project') is None:
+        raise ValueError(f"must specify a project name")
+
+    classname = VALID_PROJECT_TYPES.get(config['type'], None)
+    if classname is None:
+        raise ValueError(f"invalid type '{config['type']}'")
+
+    module = importlib.import_module('__main__')
+    cls = getattr(module, classname)
+    site = cls(args.project)
+
+    return site
+
+
 def main():
     get_opts()
-    validate_or_load_opts()
 
-    # operation is one of the things in VALID_OPERATIONS
-    if args.operation == "create":
-        do_create(args)
-    elif args.operation == "delete":
-        do_delete(args)
-    elif args.operation == "show":
-        do_show(args)
-    elif args.operation == "start":
-        do_start(args)
-    elif args.operation == "stop":
-        do_stop(args)
-    elif args.operation == "restart":
-        do_restart(args)
-    elif args.operation == "update":
-        do_update(args)
-    elif args.operation == "logs":
-        do_logs(args)
-    else:
-        raise ValueError(f"This can never happen: {args.operation=}")
+    try:
+        # show is special, we have no instance
+        if args.operation == "show":
+            do_show(vars(args))
+            sys.exit(0)
+
+        if args.operation == "create":
+            site = site_factory(vars(args))
+        else:
+            site = do_load_project(args.project)
+
+        try:
+            operation = getattr(site, args.operation)
+        except AttributeError:
+            print(f"Invalid operation: {site} has no operation {args.operation}")
+            sys.exit(1)
+        operation(vars(args))
+    except Exception as e:
+        if args.debug > 0:
+            traceback.print_exc()
+        else:
+            print(f"Error: {e}")
 
 
 if __name__ == "__main__":
