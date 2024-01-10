@@ -1,8 +1,0 @@
-#! /bin/bash
-
-# create a fresh database dump
-mysqldump --skip-extended-insert --routines --triggers --single-transaction --all-databases |
-  gzip -9 > /home/steam/minecraft/database.sql.gz
-# --exclude-caches -> do not backup directories that contain a file CACHEDIR.TAG
-tar -C / -cz --exclude-caches -f -  home /var/www /etc
-
