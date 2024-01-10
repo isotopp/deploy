@@ -478,9 +478,10 @@ def get_opts():
     debug(f"{args=}")
 
 
-def do_load_project(projectname: str) -> Deployable:
+def do_load_project(project: dict) -> Deployable:
     """ load a projectfile from PROJECT_DIR and return it as a Deployable subclass """
-    debug(f"{projectname}")
+    projectname = project['project']
+    debug(f"{projectname=}")
 
     project_filename = PROJECT_DIR / projectname
     try:
@@ -1164,18 +1165,20 @@ def do_logs(config):
 
 
 def site_factory(config: dict) -> Deployable:
-    if config.get('type') is None:
+    type_ = config.get("type")
+    project_ = config.get("project")
+    if type_ is None:
         raise ValueError(f"must specify a valid --type ")
-    if config.get('project') is None:
+    if project_ is None:
         raise ValueError(f"must specify a project name")
 
-    classname = VALID_PROJECT_TYPES.get(config['type'], None)
+    classname = VALID_PROJECT_TYPES.get(type_)
     if classname is None:
-        raise ValueError(f"invalid type '{config['type']}'")
+        raise ValueError(f"invalid type '{type_}'")
 
     module = importlib.import_module('__main__')
     cls = getattr(module, classname)
-    site = cls(args.project)
+    site = cls(project_, config)
 
     return site
 
