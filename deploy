@@ -214,7 +214,7 @@ class StaticSite(Deployable):
                   timeout=args.timeout)
 
         self._create_apache_config()
-        create_site_symlink(p['hostname'], p['home'], p['projectdir'])
+        create_site_symlink(p['hostname'], p['home'], p['project'])
         httpd_restart()
 
         print(f"project {p['project']} ({p['type']}) created")
@@ -476,7 +476,6 @@ def get_opts():
     parser.add_argument("--port", type=int, help="port to internally proxy to (only for proxy)")
     parser.add_argument("--github", help="git@github.com:...")
     parser.add_argument("--username", help="a unix username to be created (in create)")
-    parser.add_argument("--projectdir", help="a subdirectory name in that users home (in create)")
     parser.add_argument("--timeout", type=int, default=30, help="Extend timeout for running commands (defaul: 30s)")
 
     args = parser.parse_args()
@@ -540,8 +539,6 @@ def validate_or_load_opts():
         if args.type == 'proxy' and args.port is None:
             raise ValueError(f"proxy requires --port, but none was given")
 
-        if not args.projectdir:
-            args.projectdir = args.username
     else:
         do_load_project()
 
@@ -640,8 +637,8 @@ def delete_project_file(project: str):
 
 
 def clone_git(target: Union[str, Path, os.PathLike, bytes], repo: str, username: str, timeout: int):
-    """ Perform a git clone of args.github into $HOME/args.projectdir
-        as root, then re-owner things to the username provided.
+    """ Perform a git clone of ``repo`` into ``target``
+        as root, then re-owner things to the ``username`` provided.
 
         This is so that we do not need to rely on the deploykey, which is not configured, yet.
     """
@@ -824,15 +821,15 @@ def do_systemd_deactivation(project: str):
 
 def create_site_symlink(hostname: str,
                         home: Union[str, Path, os.PathLike, bytes],
-                        projectdir: Union[str, Path, os.PathLike, bytes]):
-    """ Symlink from /var/www/{hostname} to {home}/{projectdir}. """
+                        target: Union[str, Path, os.PathLike, bytes]):
+    """ Symlink from /var/www/{hostname} to {home}/{target}. """
     if not isinstance(home, Path):
         home = Path(home)
-    if not isinstance(projectdir, Path):
-        projectdir = Path(projectdir)
-    debug(f"{hostname=}, {home=}, {projectdir=}")
+    if not isinstance(target, Path):
+        target = Path(target)
+    debug(f"{hostname=}, {home=}, {target=}")
 
-    to_path = home / projectdir
+    to_path = home / target
     if args.dry_run:
         pass
     else:
