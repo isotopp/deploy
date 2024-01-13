@@ -539,6 +539,11 @@ class RedirectSite(Deployable):
         self.mandatory('hostname')
         self.mandatory('to_hostname')
 
+        hostname = self.project['hostname']
+        if not check_hostname_valid():
+            raise ValueError(f"hostname: {hostname} does not end in '.snackbag.net'")
+        # to_hostname ok to point anywhere
+
     def _create_apache_config(self):
         """ Create an apache config in /etc/httpd/conf.sites.d/{config.hostname}.conf. """
         debug("")
@@ -608,6 +613,10 @@ class ProxySite(Deployable):
         super().validate_args()
         self.mandatory('hostname')
         self.mandatory('port')
+
+        hostname = self.project['hostname']
+        if not check_hostname_valid(hostname):
+            raise ValueError(f"hostname {hostname} does not end in '.snackbag.net'")
 
     def _create_apache_config(self):
         """ Create an apache config in /etc/httpd/conf.sites.d/{config.hostname}.conf. """
@@ -689,6 +698,18 @@ class StaticSite(Deployable):
         self.mandatory('hostname')
         self.mandatory('github')
         self.optional('username', self.project['project'])
+
+        hostname = self.project['hostname']
+        if not check_hostname_valid(hostname):
+            raise ValueError(f"hostname {hostname} is does not end in '.snackbag.net'")
+
+        github = self.project['github']
+        if not check_github_valid(github):
+            raise ValueError(f"github {github} does not start with 'git@github.com:'")
+
+        username = self.project['username']
+        if check_username_exists(username):
+            raise ValueError(f"username {username} already taken")
 
     def _create_apache_config(self):
         """ Create an apache config in /etc/httpd/conf.sites.d/{config.hostname}.conf. """
@@ -812,6 +833,18 @@ class WsgiSite(Deployable):
         self.mandatory('hostname')
         self.mandatory('github')
         self.optional('username', self.project['project'])
+
+        hostname = self.project['hostname']
+        if not check_hostname_valid(hostname):
+            raise ValueError(f"hostname {hostname} is does not end in '.snackbag.net'")
+
+        github = self.project['github']
+        if not check_github_valid(github):
+            raise ValueError(f"github {github} does not start with 'git@github.com:'")
+
+        username = self.project['username']
+        if check_username_exists(username):
+            raise ValueError(f"username {username} already taken")
 
     def _create_apache_config(self):
         """ Create an apache config in /etc/httpd/conf.sites.d/{config.hostname}.conf. """
@@ -941,6 +974,14 @@ class DiscordBot(Deployable):
         super().validate_args()
         self.mandatory('github')
         self.optional('username', self.project['project'])
+
+        github = self.project['github']
+        if not check_github_valid(github):
+            raise ValueError(f"github {github} does not start with 'git@github.com:'")
+
+        username = self.project['username']
+        if check_username_exists(username):
+            raise ValueError(f"username {username} already taken")
 
     def _create_systemd_service(self):
         """ Create a systemd service in /etc/systemd/system/{project}.service. """
@@ -1337,6 +1378,8 @@ def main():
 
         config = vars(args)
         if args.operation == "create":
+            if check_project_exists(args.project):
+                raise ValueError(f"project '{args.project}' already taken")
             # create is special, we need to make an initial instance
             site = site_factory(config)
         else:
