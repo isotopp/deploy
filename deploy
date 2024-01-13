@@ -40,7 +40,7 @@ LOG_DIR = Path('/var/log')
 args: argparse.Namespace
 
 
-### Utility functions
+# Utility functions
 
 def debug(*nargs, **kwargs) -> None:
     stack = inspect.stack()
@@ -151,7 +151,7 @@ def run(cmd: str, *,
 
 def repo_as_https(github: str, subpath: str):
     """ Turn a git@github.com: url into a https url. """
-    debug((f"{github=}, {subpath=}"))
+    debug(f"{github=}, {subpath=}")
 
     # git@github.com:vijfhuizen-c0derz/deploy.git
     # https://github.com/vijfhuizen-c0derz/deploy
@@ -180,7 +180,7 @@ def collect_httpd_hostnames(directory: Path):
     return hostnames
 
 
-## Handling daemons
+# Handling daemons
 
 
 def systemd_stop(service: str):
@@ -207,7 +207,7 @@ def systemd_start(service: str):
 
 def systemd_restart(service: str):
     """ Restart a systemd service """
-    debug((f"{service=}"))
+    debug(f"{service=}")
 
     servicefile = Path(f"/etc/systemd/system/{service}.service")
     if (servicefile.exists() and servicefile.is_file()) or service == "httpd":
@@ -241,7 +241,7 @@ MDomain {all_hostnames}
     run("/usr/bin/systemctl status httpd.service", show=True)
 
 
-## More Utility functions for users, keys and stuff
+# More Utility functions for users, keys and stuff
 
 def create_user(username: str, project: str, *, mode=0o711) -> str:
     """ Build an useradd command and run it.
@@ -498,8 +498,8 @@ class Deployable:
 
     # argument validation
     def validate_args(self):
-        """ validate the argus for the class (common mandatory and optional args)
-            and put then into self.project.
+        """ validate the args for the class (common mandatory and optional args)
+            and put them into self.project.
         """
         self.mandatory('type')
 
@@ -549,6 +549,13 @@ class RedirectSite(Deployable):
                          "# vim: syntax=apache ts=4 sw=4 sts=4 sr noet\n"
         to_file(config_content, config_filename)
 
+    def _delete_apache_config(self):
+        """ Delete an apache config in /etc/httpd/conf.sites.d/{config.hostname}.conf. """
+        debug("")
+
+        config_filename = f"/etc/httpd/conf.sites.d/{self.project['hostname']}.conf"
+        delete_file(config_filename)
+
     def create(self, config):
         """ create a RedirectSite:
 
@@ -574,7 +581,7 @@ class RedirectSite(Deployable):
         debug(f"{self.project=}")
         p = self.project
 
-        delete_apache_config(p['hostname'])
+        self._delete_apache_config()
         delete_project_file(p['project'])  # first delete the project file
         httpd_restart()
         print(f"project {p['project']} ({p['type']}) deleted")
@@ -615,6 +622,13 @@ class ProxySite(Deployable):
                          "# vim: syntax=apache ts=4 sw=4 sts=4 sr noet\n"
         to_file(config_content, config_filename)
 
+    def _delete_apache_config(self):
+        """ Delete an apache config in /etc/httpd/conf.sites.d/{config.hostname}.conf. """
+        debug("")
+
+        config_filename = f"/etc/httpd/conf.sites.d/{self.project['hostname']}.conf"
+        delete_file(config_filename)
+
     def create(self, config):
         """ create a ProxySite:
 
@@ -640,7 +654,7 @@ class ProxySite(Deployable):
         debug(f"{self.project=}")
         p = self.project
 
-        delete_apache_config(p['hostname'])
+        self._delete_apache_config()
         delete_project_file(p['project'])  # first delete the project file
         httpd_restart()
         print(f"project {p['project']} ({p['type']}) deleted")
@@ -685,6 +699,13 @@ class StaticSite(Deployable):
                          f"Use VHost {self.project['hostname']}\n" \
                          "# vim: syntax=apache ts=4 sw=4 sts=4 sr noet\n"
         to_file(config_content, config_filename)
+
+    def _delete_apache_config(self):
+        """ Delete an apache config in /etc/httpd/conf.sites.d/{config.hostname}.conf. """
+        debug("")
+
+        config_filename = f"/etc/httpd/conf.sites.d/{self.project['hostname']}.conf"
+        delete_file(config_filename)
 
     def create(self, config: dict):
         """ create a static_site:
@@ -734,7 +755,7 @@ class StaticSite(Deployable):
         p = self.project
 
         delete_site_symlink(p['hostname'])
-        delete_apache_config(p['hostname'])
+        self._delete_apache_config()
 
         delete_project_file(p['project'])  # first delete the project file
 
@@ -765,7 +786,7 @@ class StaticSite(Deployable):
             run("git pull --rebase",
                 username=config['username'], groupname=config['username'], timeout=config['timeout'], show=True)
 
-        print(f"deploy restart {p['project']} # still necessary to pick up the changes")
+        print(f"deploy restart {config['project']} # still necessary to pick up the changes")
 
 
 class WsgiSite(Deployable):
@@ -790,7 +811,7 @@ class WsgiSite(Deployable):
         super().validate_args()
         self.mandatory('hostname')
         self.mandatory('github')
-        self.optional('username')
+        self.optional('username', self.project['project'])
 
     def _create_apache_config(self):
         """ Create an apache config in /etc/httpd/conf.sites.d/{config.hostname}.conf. """
@@ -806,6 +827,13 @@ class WsgiSite(Deployable):
                          f"Use PyApp {hostname} {project} {appdir} {username} {username} \n" \
                          "# vim: syntax=apache ts=4 sw=4 sts=4 sr noet\n"
         to_file(config_content, config_filename)
+
+    def _delete_apache_config(self):
+        """ Delete an apache config in /etc/httpd/conf.sites.d/{config.hostname}.conf. """
+        debug("")
+
+        config_filename = f"/etc/httpd/conf.sites.d/{self.project['hostname']}.conf"
+        delete_file(config_filename)
 
     def create(self, config: dict):
         """ create a WsgiSite:
@@ -858,7 +886,7 @@ class WsgiSite(Deployable):
         p = self.project
 
         delete_site_symlink(p['hostname'])
-        delete_apache_config(p['hostname'])
+        self._delete_apache_config()
 
         delete_project_file(p['project'])  # first delete the project file
 
@@ -889,7 +917,7 @@ class WsgiSite(Deployable):
             run("git pull --rebase",
                 username=config['username'], groupname=config['username'], timeout=config['timeout'], show=True)
 
-        print(f"deploy restart {p['project']} # still necessary to pick up the changes")
+        print(f"deploy restart {config['project']} # still necessary to pick up the changes")
 
 
 class DiscordBot(Deployable):
@@ -910,13 +938,17 @@ class DiscordBot(Deployable):
 
     def validate_args(self):
         debug("")
-        super().__init__()
+        super().validate_args()
         self.mandatory('github')
-        self.optional('username')
+        self.optional('username', self.project['project'])
 
-    def _create_systemd_service(project: str, target: str, username: str):
+    def _create_systemd_service(self):
         """ Create a systemd service in /etc/systemd/system/{project}.service. """
-        debug(f"{project=} {target=} {username=}")
+        debug(f"")
+
+        project = self.project['project']
+        target = Path(self.project['home']) / project
+        username = self.project['username']
 
         config_filename = Path(f"/etc/systemd/system/{project}.service")
         config_content = f"""
@@ -940,14 +972,17 @@ class DiscordBot(Deployable):
     """
         to_file(config_content, config_filename)
 
-    def _delete_systemd_service(project: str):
-        debug(f"{project=}")
+    def _delete_systemd_service(self):
+        debug(f"")
 
+        project = self.project['project']
         delete_file(f"/etc/systemd/system/{project}.service")
         run(f"systemctl daemon-reload")
 
-    def _create_syslog_config(project: str):
-        debug(f"{project=}")
+    def _create_syslog_config(self):
+        debug(f"")
+
+        project = self.project['project']
 
         # Step 1: Make sure a log directory and empty log file exist
         rsyslog_target = Path(f"{LOG_DIR}/services/{project}.log")
@@ -991,24 +1026,27 @@ class DiscordBot(Deployable):
     }}
     ''', logrotate_config, mode=0o644)
 
-    def _delete_syslog_config(project: str):
-        debug(f"{project=}")
+    def _delete_syslog_config(self):
+        debug(f"")
 
+        project = self.project['project']
         delete_file(f"/etc/rsyslog.d/{project}.conf")
         # do not delete old logs, we want to keep them
         # do not delete logrotate config, it is for all services.
         run(f"systemctl restart rsyslog")
 
-    def _systemd_activation(project: str):
-        debug(f"{project=}")
+    def _systemd_activation(self):
+        debug(f"")
 
+        project = self.project['project']
         run(f"systemctl daemon-reload")
         run(f"systemctl enable {project}.service")
         run(f"systemctl start {project}.service")
 
-    def _systemd_deactivation(project: str):
-        debug(f"{project=}")
+    def _systemd_deactivation(self):
+        debug(f"")
 
+        project = self.project['project']
         run(f"systemctl stop {project}.service")
         run(f"systemctl disable {project}.service")
 
@@ -1039,9 +1077,9 @@ class DiscordBot(Deployable):
                   timeout=args.timeout)
 
         python_setup(target=target, username=p['username'], timeout=args.timeout)
-        self._create_systemd_service(p['project'], target, username=p['username'])
-        self._systemd_activation(p['project'])
-        self._create_syslog_config(p['project'])
+        self._create_systemd_service()
+        self._systemd_activation()
+        self._create_syslog_config()
 
         print(f"project {p['project']} ({p['type']}) created")
         show_deployment_banner(p['hostname'], p['github'], p['pubkey'])
@@ -1062,9 +1100,9 @@ class DiscordBot(Deployable):
         debug(f"{self.project=}")
         p = self.project
 
-        self._systemd_deactivation(p['project'])
-        self._delete_systemd_service(p['project'])
-        self._delete_syslog_config(p['project'])
+        self._systemd_deactivation()
+        self._delete_systemd_service()
+        self._delete_syslog_config()
 
         delete_project_file(p['project'])  # first delete the project file
 
@@ -1116,7 +1154,7 @@ class DiscordBot(Deployable):
             run("git pull --rebase",
                 username=config['username'], groupname=config['username'], timeout=config['timeout'], show=True)
 
-        print(f"deploy restart {p['project']} # still necessary to pick up the changes")
+        print(f"deploy restart {config['project']} # still necessary to pick up the changes")
 
     def logs(self, config):
         """ Show httpd logs.
@@ -1191,6 +1229,7 @@ def site_factory(config: dict) -> Deployable:
     type_ = config.get("type")
     project_ = config.get("project")
     debug(f"{type_} {project_}")
+
     if type_ is None:
         raise ValueError(f"must specify a valid --type ")
     if project_ is None:
@@ -1207,7 +1246,7 @@ def site_factory(config: dict) -> Deployable:
     return site
 
 
-## Arg parsing and Validators
+# Arg parsing and Validators
 def check_type(the_type: str) -> bool:
     """ ArgumentParser validator for project types. """
     if the_type in VALID_PROJECT_TYPES.keys():
@@ -1281,7 +1320,7 @@ def get_opts():
     parser.add_argument("--port", type=int, help="port to internally proxy to (only for proxy)")
     parser.add_argument("--github", help="git@github.com:...")
     parser.add_argument("--username", help="a unix username to be created (in create)")
-    parser.add_argument("--timeout", type=int, default=30, help="Extend timeout for running commands (defaul: 30s)")
+    parser.add_argument("--timeout", type=int, default=30, help="Extend timeout for running commands (default: 30s)")
 
     args = parser.parse_args()
     debug(f"{args=}")
@@ -1306,11 +1345,11 @@ def main():
             config = site.project
 
         try:
-            operation = getattr(site, args.operation)
+            the_op = getattr(site, args.operation)
         except AttributeError:
             print(f"Invalid operation: {site} has no operation {args.operation}")
             sys.exit(1)
-        operation(config)
+        the_op(config)
     except Exception as e:
         if args.debug > 0:
             traceback.print_exc()
