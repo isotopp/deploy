@@ -12,6 +12,8 @@ import time
 from pathlib import Path
 from typing import Optional, Union
 
+SSLDOMAIN_LIST = [ 'artifacts.snackbag.net' ]
+
 VALID_OPERATIONS = [
     'create',
     'delete',
@@ -172,7 +174,9 @@ def check_username_exists(username: str) -> bool:
 
 def check_hostname_valid(hostname: str) -> bool:
     """ predicate is True if hostname ends with .snackbag.net """
-    if hostname.endswith(".snackbag.net"):
+    if hostname.endswith("snackbag.net"):
+        return True
+    if hostname.endswith("minenet.group"):
         return True
 
     return False
@@ -826,7 +830,7 @@ def do_httpd_restart():
     debug(f"do_httpd_restart()", level=2)
 
     the_hostname = socket.getfqdn()
-    hostnames = [the_hostname]
+    hostnames = [the_hostname] + SSLDOMAIN_LIST
     hostnames.extend(collect_httpd_hostnames(PROJECT_DIR))
     all_hostnames = " ".join(hostnames)
     to_file(f'''Servername {the_hostname}
