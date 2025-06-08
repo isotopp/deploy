@@ -422,15 +422,25 @@ def do_git_clone(target: Union[str, Path, os.PathLike, bytes], repo: str, userna
     run(f"git clone {repo} {target}", timeout=timeout)
     chown_tree(target, username, username)
 
-def do_build_go(target: Union[str, Path, os.PathLike, bytes], username: str):
+
+def do_build_go(target: Union[str, Path, os.PathLike, bytes], *,
+                username: str,
+                groupname: str
+                ):
     """ Run the Makefile in the target directory, producing a binary as the username """
     if not isinstance(target, Path):
         target = Path(target)
     debug(f"do_build_go({target=} {username=})")
+    if args.dry_run:
+        return
+
     os.chdir(target)
-    returncode = run(f"make", username=username, groupname=username)
-    if returncode != 0:
-        raise RuntimeError(f"make failed with {returncode=}")
+    return_code = run(f"make", username=username, groupname=username)
+    if return_code != 0:
+        raise RuntimeError(f"make failed in {target} with {return_code=}")
+
+    # Create .env file, empty
+    to_file("","./.env", mode=0o600, username=username, groupname=groupname)
 
     return
 
@@ -502,9 +512,19 @@ def do_delete_apache_config(hostname: str):
     delete_file(f"/etc/httpd/conf.sites.d/{hostname}.conf")
 
 
-def do_create_systemd_service(project: str, target: str, username: str):
+def do_create_systemd_service(project: str,
+                              target: str,
+                              username: str,
+                              groupname: str,
+                              exec_start: Optional[str] = None):
     """ Create a systemd service in /etc/systemd/system/{project}.service. """
-    debug(f"do_create_systemd_service({project=} {target=} {username=})")
+    if username is None:
+        username = project
+    if groupname is None:
+        groupname = project
+    if exec_start is None:
+        exec_start = f"{target}/venv/bin/python3 {target}/main.py"
+    debug(f"do_create_systemd_service({project=} {target=} {username=}, {groupname=}. {exec_start=})")
 
     config_filename = Path(f"/etc/systemd/system/{project}.service")
     config_content = f"""
@@ -515,12 +535,12 @@ After=syslog.target network.target
 [Service]
 Type=simple
 User={username}
-Group={username}
+Group={groupname}
 StandardOutput=journal
 StandardError=journal
 WorkingDirectory={target}
-ExecStart={target}/venv/bin/python3 {target}/main.py
-Restart=always
+ExecStart={exec_start}
+Restart=unless-stopped
 EnvironmentFile={target}/.env
 
 [Install]
@@ -591,6 +611,8 @@ def do_delete_syslog_config(project: str):
 
 def do_systemd_activation(project: str):
     debug(f"do_systemd_activation({project=})")
+    if args.dry_run:
+        return
 
     run(f"systemctl daemon-reload")
     run(f"systemctl enable {project}.service")
@@ -599,6 +621,8 @@ def do_systemd_activation(project: str):
 
 def do_systemd_deactivation(project: str):
     debug(f"do_systemd_deactivation({project=}")
+    if args.dry_run:
+        return
 
     run(f"systemctl stop {project}.service")
     run(f"systemctl disable {project}.service")
@@ -696,7 +720,7 @@ def do_create(config):
         do_git_clone(target=Path(config.home) / config.projectdir,
                      repo=config.github, username=config.username, timeout=config.timeout)
 
-        do_python_setup(Path(config.home) / config.projectdir, config.username, config.timeout)
+        do_python_setup(Path(config.home) / config.projectdir, config.username, config.groupname, config.timeout)
         do_create_apache_config(config)
         do_create_site_symlink(config.hostname, config.home, config.projectdir)
         do_httpd_restart()
@@ -711,7 +735,11 @@ def do_create(config):
                      repo=config.github, username=config.username, timeout=config.timeout)
 
         do_python_setup(Path(config.home) / config.projectdir, config.username, config.timeout)
-        do_create_systemd_service(config.project, Path(config.home) / config.projectdir, username=config.username)
+        do_create_systemd_service(project=config.project,
+                                  target=Path(config.home) / config.projectdir,
+                                  username=config.username,
+                                  groupname=config.groupname,
+                                  )
         do_systemd_activation(config.project)
         do_create_syslog_config(config.project)
 
@@ -723,9 +751,15 @@ def do_create(config):
         do_create_projectfile(config)
         do_git_clone(target=Path(config.home) / config.projectdir,
                      repo=config.github, username=config.username, timeout=config.timeout)
-        do_build_go(Path(config.home) / config.projectdir, config.username)
-        # do_create_systemd_service(config.project, Path(config.home) / config.projectdir, username=config.username)
-        # do_systemd_activation(config.project)
+        do_build_go(target=Path(config.home) / config.projectdir, username=config.username, groupname=config.groupname)
+        target = Path(config.home) / config.projectdir
+        do_create_systemd_service(config.project,
+                                  target=target,
+                                  username=config.username,
+                                  groupname=config.groupname,
+                                  exec_start=target / config.project
+                                  )
+        do_systemd_activation(config.project)
         # do_create_syslog_config(config.project)
         # do_create_apache_config(config)
         # do_httpd_restart()
