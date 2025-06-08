@@ -753,7 +753,7 @@ def do_create(config):
         do_systemd_activation(config.project)
         do_create_syslog_config(config.project)
         do_create_apache_config(config)
-        # do_httpd_restart()
+        do_httpd_restart()
 
         print(f"project {config.project} ({config.type}) created")
         show_deployment_banner(config.hostname, config.github, config.pubkey)
