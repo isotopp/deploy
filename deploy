@@ -936,9 +936,9 @@ def do_restart(config):
 def do_start(config):
     debug(f"do_start({config.project=}, {config.type=})")
 
-    if config.type in ["static_site", "redirect_site", "wsgi_site", "proxy"]:
+    if config.type in ["static_site", "redirect_site", "wsgi_site", "proxy", "go_site"]:
         do_systemd_start("httpd")
-    elif config.type == "discord_bot":
+    elif config.type in ["discord_bot", "go_site"]:
         do_systemd_start(config.project)
     else:
         raise ValueError(f"Unknown type {config.type}")
@@ -947,9 +947,9 @@ def do_start(config):
 def do_stop(config):
     debug(f"do_stop({config.project=}, {config.type=})")
 
-    if config.type in ["static_site", "redirect_site", "wsgi_site", "proxy"]:
+    if config.type in ["static_site", "redirect_site", "wsgi_site", "proxy", "go_site"]:
         do_systemd_stop("httpd")
-    elif config.type == "discord_bot":
+    elif config.type in ["discord_bot", "go_site"]:
         do_systemd_stop(config.project)
     else:
         raise ValueError(f"Unknown type {config.type}")
@@ -982,6 +982,12 @@ def do_update(config) -> None:
         run("git reset --hard",
             username=config.username, groupname=config.username, timeout=config.timeout)  # local changes will be lost
         run("git pull --rebase",
+            username=config.username, groupname=config.username, timeout=config.timeout, show=True)
+
+    # Do we have a Makefile?
+    makefile = Path("Makefile")
+    if makefile.exists() and makefile.is_file():
+        run("make",
             username=config.username, groupname=config.username, timeout=config.timeout, show=True)
 
     return
