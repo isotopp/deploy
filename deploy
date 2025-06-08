@@ -1014,6 +1014,11 @@ def do_logs(config):
     elif config.type == "discord_bot":
         debug(f"exec tail -F {LOG_DIR}/services/{config.project}.log")
         os.execvp('bash', ['bash', '-c', f'tail -F {LOG_DIR}/services/{config.project}.log'])
+    elif config.type == "go_site":
+        debug(
+            f"exec tail -F {LOG_DIR}/httpd/{{access,error}}-{config.hostname}.log {LOG_DIR}/services/{config.project}.log")
+        os.execvp('bash', ['bash', '-c',
+                           f'tail -F {LOG_DIR}/httpd/{{access,error}}-{config.hostname}.log {LOG_DIR}/services/{config.project}.log'])
     else:
         raise ValueError(f"Unknown type {type}")
 
