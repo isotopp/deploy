@@ -886,10 +886,10 @@ MDomain {all_hostnames}
 def do_restart(config):
     debug(f"do_restart()")
 
-    if config.type in ["static_site", "redirect_site", "wsgi_site", "proxy"]:
+    if config.type in ["static_site", "redirect_site", "wsgi_site", "proxy", "go_site"]:
         collect_httpd_hostnames(PROJECT_DIR)
         do_httpd_restart()
-    elif config.type == "discord_bot":
+    elif config.type in ["discord_bot", "go_site"]:
         do_systemd_restart(config.project)
     else:
         raise ValueError(f"Unknown type {config.type}")
