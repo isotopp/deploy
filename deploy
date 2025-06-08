@@ -27,6 +27,7 @@ VALID_PROJECT_TYPES = [
     'static_site',
     'wsgi_site',
     'discord_bot',
+    'go_site'
     'proxy',
 ]
 
@@ -268,18 +269,18 @@ def validate_or_load_opts():
 
         if not args.hostname:
             args.hostname = f"{args.project}.snackbag.net"
-        if args.type not in ['redirect_site', 'proxy'] and not check_hostname_valid(args.hostname):
+        if args.type not in ['redirect_site', 'proxy', 'go_site'] and not check_hostname_valid(args.hostname):
             raise ValueError(f"hostname {args.hostname} does not end in '.snackbag.net'")
 
-        if args.type not in ['redirect_site', 'proxy'] and not args.github:
+        if args.type not in ['redirect_site', 'proxy', 'go_site'] and not args.github:
             raise ValueError(f"github is empty; specify --github <somegithub>")
-        if args.type not in ['redirect_site', 'proxy'] and not check_github_valid(args.github):
+        if args.type not in ['redirect_site', 'proxy', 'go_site'] and not check_github_valid(args.github):
             raise ValueError(f"github {args.github} is not a valid github url 'git@github.com:...")
 
         if args.type == 'redirect_site' and args.to_host is None:
             raise ValueError(f"redirect_site requires '--to-host', but none was given")
-        if args.type == 'proxy' and args.port is None:
-            raise ValueError(f"proxy requires --port, but none was given")
+        if args.type in ['proxy', 'go_site'] and args.port is None:
+            raise ValueError(f"proxy and go_site require --port, but none was given")
 
         if not args.projectdir:
             args.projectdir = args.username
@@ -691,6 +692,20 @@ def do_create(config):
 
         print(f"project {config.project} ({config.type}) created")
         show_deployment_banner(config.hostname, config.github, config.pubkey)
+    elif config.type == "go_site":
+        config.home = do_create_user(config.username, config.project)
+        config.pubkey = do_create_ssh_key(config.username, config.home)
+        do_create_projectfile(config)
+        do_git_clone(target=Path(config.home) / config.projectdir,
+                     repo=config.github, username=config.username, timeout=config.timeout)
+        # do_create_systemd_service(config.project, Path(config.home) / config.projectdir, username=config.username)
+        # do_systemd_activation(config.project)
+        # do_create_syslog_config(config.project)
+        # do_create_apache_config(config)
+        # do_httpd_restart()
+        #
+        # print(f"project {config.project} ({config.type}) created")
+        # show_deployment_banner(config.hostname, config.github, config.pubkey)
     else:
         raise RuntimeError(f"Unknown type {config.type}")
 
