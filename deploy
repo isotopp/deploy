@@ -430,8 +430,6 @@ def do_build_go(target: Union[str, Path, os.PathLike, bytes], *,
     if not isinstance(target, Path):
         target = Path(target)
     debug(f"do_build_go({target=} {username=})")
-    if args.dry_run:
-        return
 
     os.chdir(target)
     return_code = run(f"make", username=username, groupname=username)
@@ -492,7 +490,7 @@ Use PyApp {config.hostname} {config.project}   {config.home}/{config.projectdir}
 Use RedirectVHost {config.hostname} {config.to_hostname} 
 # vim: syntax=apache ts=4 sw=4 sts=4 sr noet
 """
-    elif config.type == "proxy":
+    elif config.type in ["proxy", "go_site"]:
         config_content = f"""
 Use ProxyVHost {config.hostname} {config.port}
 # vim: syntax=apache ts=4 sw=4 sts=4 sr noet
@@ -607,8 +605,6 @@ def do_delete_syslog_config(project: str):
 
 def do_systemd_activation(project: str):
     debug(f"do_systemd_activation({project=})")
-    if args.dry_run:
-        return
 
     run(f"systemctl daemon-reload")
     run(f"systemctl enable {project}.service")
@@ -755,12 +751,12 @@ def do_create(config):
                                   exec_start=target / config.project
                                   )
         do_systemd_activation(config.project)
-        # do_create_syslog_config(config.project)
-        # do_create_apache_config(config)
+        do_create_syslog_config(config.project)
+        do_create_apache_config(config)
         # do_httpd_restart()
-        #
-        # print(f"project {config.project} ({config.type}) created")
-        # show_deployment_banner(config.hostname, config.github, config.pubkey)
+
+        print(f"project {config.project} ({config.type}) created")
+        show_deployment_banner(config.hostname, config.github, config.pubkey)
     else:
         raise RuntimeError(f"Unknown type {config.type}")
 
@@ -795,8 +791,12 @@ def do_delete(config):
         do_delete_systemd_service(config.project)
         do_delete_syslog_config(config.project)
     elif config.type == "go_site":
+        # Clean up the web server
         do_delete_apache_config(config.hostname)
+        # Clean up the service
         do_systemd_deactivation(config.project)
+        do_delete_systemd_service(config.project)
+        do_delete_syslog_config(config.project)
     else:
         raise RuntimeError(f"Unknown type {config.type}")
 
