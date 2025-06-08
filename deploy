@@ -29,7 +29,7 @@ VALID_PROJECT_TYPES = [
     'static_site',
     'wsgi_site',
     'discord_bot',
-    'go_site'
+    'go_site',
     'proxy',
 ]
 
@@ -273,12 +273,12 @@ def validate_or_load_opts():
 
         if not args.hostname:
             args.hostname = f"{args.project}.snackbag.net"
-        if args.type not in ['redirect_site', 'proxy', 'go_site'] and not check_hostname_valid(args.hostname):
+        if args.type not in ['redirect_site', 'proxy'] and not check_hostname_valid(args.hostname):
             raise ValueError(f"hostname {args.hostname} does not end in '.snackbag.net'")
 
-        if args.type not in ['redirect_site', 'proxy', 'go_site'] and not args.github:
+        if args.type not in ['redirect_site', 'proxy'] and not args.github:
             raise ValueError(f"github is empty; specify --github <somegithub>")
-        if args.type not in ['redirect_site', 'proxy', 'go_site'] and not check_github_valid(args.github):
+        if args.type not in ['redirect_site', 'proxy'] and not check_github_valid(args.github):
             raise ValueError(f"github {args.github} is not a valid github url 'git@github.com:...")
 
         if args.type == 'redirect_site' and args.to_host is None:
@@ -773,7 +773,12 @@ def do_show_project(project):
     max_key_len = max(len(key) for key in config)
 
     print(f"*** PROJECT {project}")
+    print(f"*** TYPE: {config['type']}")
+    print()
+
     for k, v in sorted(config.items()):
+        if k == "type":
+            continue
         print(f"- {k:<{max_key_len}}: {v}")
 
 
