@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Optional, Union
 
-SSLDOMAIN_LIST = [ 'artifacts.snackbag.net' ]
+SSLDOMAIN_LIST = ['artifacts.snackbag.net']
 
 VALID_OPERATIONS = [
     'create',
@@ -437,7 +437,7 @@ def do_build_go(target: Union[str, Path, os.PathLike, bytes], *,
         raise RuntimeError(f"make failed in {target} with {return_code=}")
 
     # Create .env file, empty
-    to_file("","./.env", mode=0o600, username=username, groupname=username)
+    to_file("", "./.env", mode=0o600, username=username, groupname=username)
 
     return
 
@@ -924,35 +924,47 @@ MDomain {all_hostnames}
 def do_restart(config):
     debug(f"do_restart()")
 
+    if config.type not in VALID_PROJECT_TYPES:
+        raise ValueError(f"Unknown type {config.type}")
+
     if config.type in ["static_site", "redirect_site", "wsgi_site", "proxy", "go_site"]:
         collect_httpd_hostnames(PROJECT_DIR)
         do_httpd_restart()
-    elif config.type in ["discord_bot", "go_site"]:
+
+    if config.type in ["discord_bot", "go_site"]:
         do_systemd_restart(config.project)
-    else:
-        raise ValueError(f"Unknown type {config.type}")
+
+    return
 
 
 def do_start(config):
     debug(f"do_start({config.project=}, {config.type=})")
 
+    if config.type not in VALID_PROJECT_TYPES:
+        raise ValueError(f"Unknown type {config.type}")
+
     if config.type in ["static_site", "redirect_site", "wsgi_site", "proxy", "go_site"]:
         do_systemd_start("httpd")
-    elif config.type in ["discord_bot", "go_site"]:
+
+    if config.type in ["discord_bot", "go_site"]:
         do_systemd_start(config.project)
-    else:
-        raise ValueError(f"Unknown type {config.type}")
+
+    return
 
 
 def do_stop(config):
     debug(f"do_stop({config.project=}, {config.type=})")
 
+    if config.type not in VALID_PROJECT_TYPES:
+        raise ValueError(f"Unknown type {config.type}")
+
     if config.type in ["static_site", "redirect_site", "wsgi_site", "proxy", "go_site"]:
         do_systemd_stop("httpd")
-    elif config.type in ["discord_bot", "go_site"]:
+
+    if config.type in ["discord_bot", "go_site"]:
         do_systemd_stop(config.project)
-    else:
-        raise ValueError(f"Unknown type {config.type}")
+
+    return
 
 
 def do_update(config) -> None:
