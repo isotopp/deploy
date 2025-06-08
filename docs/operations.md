@@ -269,3 +269,44 @@ Overall deletion is relatively simple because most files are in the user home,
 so when we delete the user, we also delete all local config.
 
 All things will be kept in the `restic` backup, so they can be undone to some extent.
+
+# Global Options: Debug, Dry Run, Timeout
+
+The program defines the following global flags, which can be used with any command:
+
+##  -d, --debug (default: 0)
+
+Type
+: Repeatable flag
+
+Purpose
+: Enables debug output. More `-d` = more detail (3 times should be enough)
+
+- `-d`: Basic debug info
+- `-dd`: Include subprocess calls and file ops
+- `-ddd`: also include system-level restarts
+
+# -n, --dry-run (default: False)
+
+Type
+: Boolean flag
+
+Purpose
+: Simulates actions without making any actual changes.
+
+With `--dry-run`, commands like `useradd`, file writes, Git operations, and restarts are skipped,
+but printed as if they would have run.
+
+# -t, --timeout (default: 30 sec)
+
+Type
+: Integer (default: 30)
+
+Purpose
+: Sets a timeout for subprocess commands like git clone or pip install.
+
+It is suggested that you place global options immediately after the `deploy` command:
+
+```bash
+./deploy.py -d -n -t 60 create mysite --type static_site --github ...
+```
