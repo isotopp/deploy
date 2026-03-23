@@ -42,6 +42,12 @@
 - A readable copy was placed at `/home/codex/deploy`, then moved into Git at `/home/codex/Source/deploy/deploy`
 - Remote Git repo created at `/home/codex/Source/deploy`
 - Import commit: `efd12ce` with message `Import deploy script`
+- Refactor constraints:
+  - target runtime is `uv` with `--managed-python`, not the system Python
+  - preferred CLI shape is `uv run --managed-python deploy create <type> <name> ...`
+  - create-time options should be type-specific, not one shared option bag
+  - Python style preferences: `dataclasses`, `pathlib`, and `httpx` if HTTP is needed
+  - project tooling preferences: `pytest`, `ty`, and `ruff`
 
 ## /etc/projects
 
