@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from socket import getfqdn
 
@@ -66,3 +67,18 @@ def render_ssldomain_config(hostnames: list[str], *, fqdn: str | None = None) ->
         "MDPrivateKeys RSA 4096\n"
         f"MDomain {all_hostnames}\n"
     )
+
+
+def collect_hostnames(
+    projects: Sequence[DeployProject],
+    extra_hostnames: Sequence[str],
+    *,
+    fqdn: str,
+) -> list[str]:
+    seen = {fqdn}
+    collected: list[str] = []
+    for hostname in [*extra_hostnames, *(project.hostname for project in projects)]:
+        if hostname not in seen:
+            seen.add(hostname)
+            collected.append(hostname)
+    return collected

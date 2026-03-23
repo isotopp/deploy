@@ -10,6 +10,7 @@ class DeployPaths:
     apache_sites_dir: Path = Path("/etc/httpd/conf.sites.d")
     apache_tls_config: Path = Path("/etc/httpd/conf.d/ssldomain.conf")
     apache_macros_config: Path = Path("/etc/httpd/conf.d/macros.conf")
+    machine_fqdn: str = "server.home.koehntopp.de"
 
 
 @dataclass(frozen=True)
