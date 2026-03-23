@@ -7,6 +7,7 @@ from typing import Any, Literal, cast
 from .errors import ProjectValidationError
 
 ProjectType = Literal["static_site", "redirect_site", "wsgi_site", "proxy"]
+SourceType = Literal["git", "local_git"]
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class BaseProject:
 
 @dataclass(frozen=True)
 class StaticSiteProject(BaseProject):
+    source_type: SourceType
     source: str
     username: str
     project_dir: str
@@ -37,6 +39,7 @@ class RedirectSiteProject(BaseProject):
 
 @dataclass(frozen=True)
 class WsgiSiteProject(BaseProject):
+    source_type: SourceType
     source: str
     username: str
     project_dir: str
@@ -84,7 +87,7 @@ def _project_dir_default(name: str, record: dict[str, Any]) -> str:
     legacy = _optional_str(record, "projectdir")
     if legacy:
         return legacy
-    return name
+    return "checkout"
 
 
 def _source_value(record: dict[str, Any]) -> str:
@@ -97,6 +100,18 @@ def _source_value(record: dict[str, Any]) -> str:
     raise ProjectValidationError("missing or invalid field: source")
 
 
+def _source_type_value(record: dict[str, Any]) -> SourceType:
+    source_type = _optional_str(record, "source_type")
+    if source_type is None:
+        source = _source_value(record)
+        if source.startswith("/"):
+            return "local_git"
+        return "git"
+    if source_type not in {"git", "local_git"}:
+        raise ProjectValidationError("invalid field: source_type")
+    return cast(SourceType, source_type)
+
+
 def project_from_record(record: dict[str, Any], *, name: str | None = None) -> DeployProject:
     project_name = name or _require_str(record, "project")
     project_type = command_name_to_project_type(_require_str(record, "type"))
@@ -107,6 +122,7 @@ def project_from_record(record: dict[str, Any], *, name: str | None = None) -> D
             name=project_name,
             project_type=project_type,
             hostname=hostname,
+            source_type=_source_type_value(record),
             source=_source_value(record),
             username=_require_str(record, "username"),
             project_dir=_project_dir_default(project_name, record),
@@ -129,6 +145,7 @@ def project_from_record(record: dict[str, Any], *, name: str | None = None) -> D
             name=project_name,
             project_type=project_type,
             hostname=hostname,
+            source_type=_source_type_value(record),
             source=_source_value(record),
             username=_require_str(record, "username"),
             project_dir=_project_dir_default(project_name, record),

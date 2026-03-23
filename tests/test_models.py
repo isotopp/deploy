@@ -31,6 +31,7 @@ def test_loads_legacy_wsgi_record() -> None:
     )
 
     assert isinstance(project, WsgiSiteProject)
+    assert project.source_type == "git"
     assert project.source == "git@github.com:isotopp/webauthn-test.git"
     assert project.project_dir == "webauthn"
 

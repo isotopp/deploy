@@ -47,6 +47,8 @@ def test_create_wsgi_subcommand_parses_type_specific_options(capsys) -> None:
             "webauthn",
             "--hostname",
             "webauthn.home.koehntopp.de",
+            "--source-type",
+            "git",
             "--source",
             "git@github.com:isotopp/webauthn-test.git",
             "--username",
@@ -57,6 +59,7 @@ def test_create_wsgi_subcommand_parses_type_specific_options(capsys) -> None:
     assert exit_code == 0
     out = capsys.readouterr().out
     assert '"project_type": "wsgi_site"' in out
+    assert '"source_type": "git"' in out
     assert '"source": "git@github.com:isotopp/webauthn-test.git"' in out
 
 
@@ -185,7 +188,7 @@ def test_update_in_configtest_logs_git_commands_for_wsgi(tmp_path, capsys) -> No
     (project_dir / "webauthn").write_text(
         (
             '{"type":"wsgi_site","project":"webauthn","hostname":"webauthn.home.koehntopp.de",'
-            '"source":"git@github.com:isotopp/webauthn-test.git","username":"webauthn",'
+            '"source_type":"git","source":"git@github.com:isotopp/webauthn-test.git","username":"webauthn",'
             '"projectdir":"webauthn","home":"/home/webauthn"}\n'
         ),
         encoding="utf-8",
@@ -210,9 +213,9 @@ def test_update_in_configtest_logs_git_commands_for_wsgi(tmp_path, capsys) -> No
     assert '"supported": true' in out
     cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
     assert "cd /home/webauthn/webauthn" in cmdlog
-    assert "git reset --hard" in cmdlog
-    assert "git pull --rebase" in cmdlog
-    assert "venv/bin/python -m pip install -r requirements.txt" in cmdlog
+    assert "sudo -u webauthn -- git reset --hard" in cmdlog
+    assert "sudo -u webauthn -- git pull --rebase" in cmdlog
+    assert "sudo -u webauthn -- uv sync" in cmdlog
 
 
 def test_update_skips_proxy_project(tmp_path, capsys) -> None:
@@ -238,3 +241,54 @@ def test_update_skips_proxy_project(tmp_path, capsys) -> None:
     out = capsys.readouterr().out
     assert '"supported": false' in out
     assert "source-backed update workflow" in out
+
+
+def test_create_wsgi_local_git_uses_checkout_and_updater(tmp_path, capsys) -> None:
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "pyproject.toml").write_text(
+        (
+            '[project]\nname = "demo"\nversion = "0.1.0"\n'
+            '[tool.deploy]\nupdater = ["uv", "run", "python", "-m", "demo.update"]\n'
+        ),
+        encoding="utf-8",
+    )
+    configtest_prefix = tmp_path / "staging"
+    project_dir = tmp_path / "projects"
+    apache_sites_dir = tmp_path / "sites"
+    apache_tls_config = tmp_path / "conf.d" / "ssldomain.conf"
+
+    exit_code = main(
+        [
+            "--json",
+            "--configtest",
+            str(configtest_prefix),
+            "--project-dir",
+            str(project_dir),
+            "--apache-sites-dir",
+            str(apache_sites_dir),
+            "--apache-tls-config",
+            str(apache_tls_config),
+            "create",
+            "wsgi-site",
+            "demo",
+            "--hostname",
+            "demo.home.koehntopp.de",
+            "--source-type",
+            "local_git",
+            "--source",
+            str(source_dir),
+            "--username",
+            "demo",
+        ]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert '"project_dir": "checkout"' in out
+    assert '"source_type": "local_git"' in out
+    cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
+    assert f"git clone {source_dir}" in cmdlog
+    assert "sudo -u demo -- uv sync" in cmdlog
+    assert "sudo -u demo -- ln -sfn .venv venv" in cmdlog
+    assert "sudo -u demo -- uv run python -m demo.update" in cmdlog

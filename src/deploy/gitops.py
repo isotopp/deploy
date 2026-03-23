@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,6 +13,27 @@ class UpdatePlan:
     working_tree: Path | None
     commands: tuple[tuple[str, ...], ...]
     reason: str | None = None
+
+
+def discover_updater(project_root: Path) -> tuple[str, ...] | None:
+    pyproject_path = project_root / "pyproject.toml"
+    if not pyproject_path.exists():
+        return None
+    data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+    tool = data.get("tool")
+    if not isinstance(tool, dict):
+        return None
+    deploy = tool.get("deploy")
+    if not isinstance(deploy, dict):
+        return None
+    updater = deploy.get("updater")
+    if (
+        not isinstance(updater, list)
+        or not updater
+        or not all(isinstance(item, str) for item in updater)
+    ):
+        return None
+    return tuple(updater)
 
 
 def project_working_tree(project: DeployProject) -> Path | None:
@@ -42,8 +64,10 @@ def build_update_plan(project: DeployProject) -> UpdatePlan:
         ("git", "reset", "--hard"),
         ("git", "pull", "--rebase"),
     ]
-    if isinstance(project, WsgiSiteProject):
-        commands.append(("venv/bin/python", "-m", "pip", "install", "-r", "requirements.txt"))
+    commands.append(("uv", "sync"))
+    updater = discover_updater(working_tree)
+    if updater is not None:
+        commands.append(updater)
 
     return UpdatePlan(
         supported=True,

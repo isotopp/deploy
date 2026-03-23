@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import pwd
 import sys
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .apache import collect_hostnames, render_site_config, render_ssldomain_config
 from .fs import FileSystem
-from .gitops import build_update_plan
+from .gitops import build_update_plan, discover_updater
 from .models import (
     DeployProject,
     ProxyProject,
@@ -114,6 +115,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="create a static site preview",
     )
     _add_common_create_args(static_parser)
+    static_parser.add_argument("--source-type", choices=("git", "local_git"), required=True)
     static_parser.add_argument("--source", required=True)
     static_parser.add_argument("--username", required=True)
     static_parser.add_argument("--project-dir-name", default=None)
@@ -125,6 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="create a WSGI site preview",
     )
     _add_common_create_args(wsgi_parser)
+    wsgi_parser.add_argument("--source-type", choices=("git", "local_git"), required=True)
     wsgi_parser.add_argument("--source", required=True)
     wsgi_parser.add_argument("--username", required=True)
     wsgi_parser.add_argument("--project-dir-name", default=None)
@@ -170,9 +173,10 @@ def _build_project_from_args(args: argparse.Namespace) -> DeployProject:
             name=args.name,
             project_type="static_site",
             hostname=args.hostname,
+            source_type=args.source_type,
             source=args.source,
             username=args.username,
-            project_dir=args.project_dir_name or args.name,
+            project_dir=args.project_dir_name or "checkout",
             home=args.home,
         )
     if args.project_type in {"wsgi-site", "wsgi_site"}:
@@ -180,9 +184,10 @@ def _build_project_from_args(args: argparse.Namespace) -> DeployProject:
             name=args.name,
             project_type="wsgi_site",
             hostname=args.hostname,
+            source_type=args.source_type,
             source=args.source,
             username=args.username,
-            project_dir=args.project_dir_name or args.name,
+            project_dir=args.project_dir_name or "checkout",
             home=args.home,
         )
     return ProxyProject(
@@ -258,6 +263,46 @@ def _restart_httpd(options: CommonOptions) -> None:
     runner.run(["systemctl", "status", "httpd.service"])
 
 
+def _default_home(username: str) -> str:
+    try:
+        return pwd.getpwnam(username).pw_dir
+    except KeyError:
+        return f"/home/{username}"
+
+
+def _prepare_project_for_create(project: DeployProject) -> DeployProject:
+    if isinstance(project, (StaticSiteProject, WsgiSiteProject)) and project.home is None:
+        return replace(project, home=_default_home(project.username))
+    return project
+
+
+def _provision_source_backed_project(project: DeployProject, options: CommonOptions) -> None:
+    if not isinstance(project, (StaticSiteProject, WsgiSiteProject)):
+        return
+
+    assert project.home is not None
+    home_path = Path(project.home)
+    checkout_path = home_path / project.project_dir
+    runner = CommandRunner(options.execution)
+
+    runner.run(["useradd", "-m", "-c", f"Project {project.name} owner", project.username])
+    runner.run(["mkdir", "-p", str(home_path)])
+    runner.run(["git", "clone", project.source, str(checkout_path)])
+    runner.run(["chown", "-R", f"{project.username}:{project.username}", str(home_path)])
+    runner.run(["uv", "sync"], cwd=checkout_path, username=project.username)
+
+    if isinstance(project, WsgiSiteProject):
+        runner.run(["ln", "-sfn", ".venv", "venv"], cwd=checkout_path, username=project.username)
+
+    updater: tuple[str, ...] | None = None
+    if project.source_type == "local_git":
+        updater = discover_updater(Path(project.source))
+    elif options.execution.mode is RunMode.LIVE and checkout_path.exists():
+        updater = discover_updater(checkout_path)
+    if updater is not None:
+        runner.run(list(updater), cwd=checkout_path, username=project.username)
+
+
 def _write_tls_state(options: CommonOptions, store: ProjectStore) -> Path:
     return _write_tls_state_excluding(options, store, excluded_names=set())
 
@@ -282,6 +327,8 @@ def _write_tls_state_excluding(
 
 
 def _create_project(project: DeployProject, options: CommonOptions) -> int:
+    project = _prepare_project_for_create(project)
+    _provision_source_backed_project(project, options)
     store = ProjectStore(options.project_dir, context=options.execution)
     written = _write_apache_state(project, options=options, store=store)
     _restart_httpd(options)
@@ -381,7 +428,10 @@ def _update_project(name: str, options: CommonOptions) -> int:
     runner = CommandRunner(options.execution)
     if plan.supported and plan.working_tree is not None:
         for command in plan.commands:
-            runner.run(list(command), cwd=plan.working_tree)
+            if isinstance(project, (StaticSiteProject, WsgiSiteProject)):
+                runner.run(list(command), cwd=plan.working_tree, username=project.username)
+            else:
+                runner.run(list(command), cwd=plan.working_tree)
     if options.json_output:
         print(
             dump_json(

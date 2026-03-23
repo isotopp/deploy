@@ -22,6 +22,7 @@ def test_renders_wsgi_macro_output() -> None:
         name="webauthn",
         project_type="wsgi_site",
         hostname="webauthn.home.koehntopp.de",
+        source_type="git",
         source="git@github.com:isotopp/webauthn-test.git",
         username="webauthn",
         project_dir="webauthn",
