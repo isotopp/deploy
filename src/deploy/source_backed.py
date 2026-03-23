@@ -6,7 +6,13 @@ from pathlib import Path
 
 from .command_common import CommonOptions, source_backed_backup_path, source_backed_home
 from .errors import CreatePreflightError
-from .gitops import clone_command, discover_updater, local_git_safe_directories
+from .gitops import (
+    clone_command,
+    discover_updater,
+    local_git_safe_directories,
+    normalize_runtime_command,
+    resolved_uv_executable,
+)
 from .models import DeployProject, StaticSiteProject, WsgiSiteProject
 from .runner import CommandRunner
 from .runtime import RunMode
@@ -56,7 +62,7 @@ def provision_source_backed_project(project: DeployProject, options: CommonOptio
     )
     runner.run(["chown", "-R", f"{project.username}:{project.username}", str(home_path)])
     if isinstance(project, WsgiSiteProject):
-        runner.run(["uv", "sync"], cwd=checkout_path, username=project.username)
+        runner.run([resolved_uv_executable(), "sync"], cwd=checkout_path, username=project.username)
         runner.run(["ln", "-sfn", ".venv", "venv"], cwd=checkout_path, username=project.username)
 
     updater: tuple[str, ...] | None = None
@@ -65,7 +71,11 @@ def provision_source_backed_project(project: DeployProject, options: CommonOptio
     elif options.execution.mode is RunMode.LIVE and checkout_path.exists():
         updater = discover_updater(checkout_path)
     if updater is not None:
-        runner.run(list(updater), cwd=checkout_path, username=project.username)
+        runner.run(
+            list(normalize_runtime_command(updater)),
+            cwd=checkout_path,
+            username=project.username,
+        )
 
 
 def configure_local_git_safe_directories(project: DeployProject, options: CommonOptions) -> None:

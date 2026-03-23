@@ -80,11 +80,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     restart_parser.add_argument("name", help="project name")
 
+    start_parser = subparsers.add_parser(
+        "start",
+        help="regenerate apache config and start httpd",
+    )
+    start_parser.add_argument("name", help="project name")
+
+    stop_parser = subparsers.add_parser(
+        "stop",
+        help="stop httpd",
+    )
+    stop_parser.add_argument("name", help="project name")
+
     update_parser = subparsers.add_parser(
         "update",
         help="update a source-backed deployed working tree",
     )
     update_parser.add_argument("name", help="project name")
+
+    logs_parser = subparsers.add_parser(
+        "logs",
+        help="tail apache access and error logs for a project",
+    )
+    logs_parser.add_argument("name", help="project name")
 
     create_parser = subparsers.add_parser(
         "create",
@@ -256,8 +274,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "restart":
         return restart_project(args.name, options)
 
+    if args.command == "start":
+        from .command_handlers import start_project
+
+        return start_project(args.name, options)
+
+    if args.command == "stop":
+        from .command_handlers import stop_project
+
+        return stop_project(args.name, options)
+
     if args.command == "update":
         return update_project(args.name, options)
+
+    if args.command == "logs":
+        from .command_handlers import logs_project
+
+        return logs_project(args.name, options)
 
     if args.command == "bootstrap-apache":
         return bootstrap_apache(args.bootstrap_all, args.bootstrap_ip_only, options)

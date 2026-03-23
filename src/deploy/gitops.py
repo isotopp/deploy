@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -64,6 +65,16 @@ def discover_updater(project_root: Path) -> tuple[str, ...] | None:
     return tuple(updater)
 
 
+def resolved_uv_executable() -> str:
+    return shutil.which("uv") or "uv"
+
+
+def normalize_runtime_command(command: tuple[str, ...]) -> tuple[str, ...]:
+    if command and command[0] == "uv":
+        return (resolved_uv_executable(), *command[1:])
+    return command
+
+
 def project_working_tree(project: DeployProject) -> Path | None:
     if isinstance(project, (StaticSiteProject, WsgiSiteProject)) and project.home is not None:
         return Path(project.home) / project.project_dir
@@ -90,10 +101,11 @@ def build_update_plan(project: DeployProject) -> UpdatePlan:
 
     commands: list[tuple[str, ...]] = [("git", "reset", "--hard")]
     commands.append(("git", "pull", "--rebase"))
-    commands.append(("uv", "sync"))
+    if isinstance(project, WsgiSiteProject):
+        commands.append((resolved_uv_executable(), "sync"))
     updater = discover_updater(working_tree)
     if updater is not None:
-        commands.append(updater)
+        commands.append(normalize_runtime_command(updater))
 
     return UpdatePlan(
         supported=True,

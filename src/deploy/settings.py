@@ -9,6 +9,7 @@ class DeployPaths:
     project_dir: Path = Path("/etc/projects")
     httpd_conf: Path = Path("/etc/httpd/conf/httpd.conf")
     apache_sites_dir: Path = Path("/etc/httpd/conf.sites.d")
+    apache_log_dir: Path = Path("/var/log/httpd")
     apache_tls_config: Path = Path("/etc/httpd/conf.d/ssldomain.conf")
     apache_macros_config: Path = Path("/etc/httpd/conf.d/macros.conf")
     ssl_conf: Path = Path("/etc/httpd/conf.d/ssl.conf")

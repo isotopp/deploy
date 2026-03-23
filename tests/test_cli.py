@@ -142,6 +142,9 @@ def test_configtest_writes_staged_files_and_command_log(tmp_path, capsys) -> Non
     assert "systemctl stop httpd.service" in (configtest_prefix / "cmdlog.sh").read_text(
         encoding="utf-8"
     )
+    assert "systemctl --no-pager status httpd.service" in (
+        configtest_prefix / "cmdlog.sh"
+    ).read_text(encoding="utf-8")
 
     staged_project = configtest_prefix / project_dir.relative_to(project_dir.anchor) / "immich"
     staged_site = (
@@ -189,6 +192,104 @@ def test_restart_in_configtest_regenerates_tls_and_logs_commands(tmp_path, capsy
     assert '"phase": "restart"' in out
     staged_tls = configtest_prefix / apache_tls_config.relative_to(apache_tls_config.anchor)
     assert "plik.home.koehntopp.de" in staged_tls.read_text(encoding="utf-8")
+
+
+def test_start_in_configtest_regenerates_tls_and_logs_commands(tmp_path, capsys) -> None:
+    project_dir = tmp_path / "projects"
+    project_dir.mkdir()
+    (project_dir / "plik").write_text(
+        '{"type":"proxy","project":"plik","hostname":"plik.home.koehntopp.de","port":8084}\n',
+        encoding="utf-8",
+    )
+    configtest_prefix = tmp_path / "staging"
+    apache_sites_dir = tmp_path / "sites"
+    apache_tls_config = tmp_path / "conf.d" / "ssldomain.conf"
+
+    exit_code = main(
+        [
+            "--json",
+            "--configtest",
+            str(configtest_prefix),
+            "--project-dir",
+            str(project_dir),
+            "--apache-sites-dir",
+            str(apache_sites_dir),
+            "--apache-tls-config",
+            str(apache_tls_config),
+            "start",
+            "plik",
+        ]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert '"phase": "start"' in out
+    cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
+    assert "systemctl start httpd.service" in cmdlog
+    assert "systemctl --no-pager status httpd.service" in cmdlog
+    assert "systemctl stop httpd.service" not in cmdlog
+    staged_tls = configtest_prefix / apache_tls_config.relative_to(apache_tls_config.anchor)
+    assert "plik.home.koehntopp.de" in staged_tls.read_text(encoding="utf-8")
+
+
+def test_stop_in_configtest_logs_stop_command(tmp_path, capsys) -> None:
+    project_dir = tmp_path / "projects"
+    project_dir.mkdir()
+    (project_dir / "plik").write_text(
+        '{"type":"proxy","project":"plik","hostname":"plik.home.koehntopp.de","port":8084}\n',
+        encoding="utf-8",
+    )
+    configtest_prefix = tmp_path / "staging"
+
+    exit_code = main(
+        [
+            "--json",
+            "--configtest",
+            str(configtest_prefix),
+            "--project-dir",
+            str(project_dir),
+            "stop",
+            "plik",
+        ]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert '"phase": "stop"' in out
+    cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
+    assert "systemctl stop httpd.service" in cmdlog
+    assert "systemctl --no-pager status httpd.service" not in cmdlog
+
+
+def test_logs_in_configtest_logs_tail_f(tmp_path, capsys) -> None:
+    project_dir = tmp_path / "projects"
+    project_dir.mkdir()
+    (project_dir / "plik").write_text(
+        '{"type":"proxy","project":"plik","hostname":"plik.home.koehntopp.de","port":8084}\n',
+        encoding="utf-8",
+    )
+    configtest_prefix = tmp_path / "staging"
+
+    exit_code = main(
+        [
+            "--json",
+            "--configtest",
+            str(configtest_prefix),
+            "--project-dir",
+            str(project_dir),
+            "logs",
+            "plik",
+        ]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert '"phase": "logs"' in out
+    cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
+    assert (
+        "tail -F /var/log/httpd/error-plik.home.koehntopp.de.log "
+        "/var/log/httpd/access-plik.home.koehntopp.de.log" in cmdlog
+    )
 
 
 def test_delete_in_configtest_logs_restart_and_stages_tls(tmp_path, capsys) -> None:
@@ -298,6 +399,7 @@ def test_delete_force_in_configtest_reports_force(tmp_path, capsys) -> None:
     assert '"force": true' in out
     cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
     assert "systemctl stop httpd.service" in cmdlog
+    assert "systemctl --no-pager status httpd.service" in cmdlog
     assert "userdel -r keks" in cmdlog
 
 
@@ -398,7 +500,8 @@ def test_update_in_configtest_logs_git_commands_for_wsgi(tmp_path, capsys) -> No
     assert "sudo -u webauthn -- sh -lc " in cmdlog
     assert "cd /home/webauthn/webauthn && exec git reset --hard" in cmdlog
     assert "cd /home/webauthn/webauthn && exec git pull --rebase" in cmdlog
-    assert "sudo -u webauthn -- sh -lc 'cd /home/webauthn/webauthn && exec uv sync'" in cmdlog
+    assert "cd /home/webauthn/webauthn && exec " in cmdlog
+    assert " sync'" in cmdlog
 
 
 def test_update_local_git_uses_env_inside_sudo(tmp_path, capsys) -> None:
@@ -437,6 +540,7 @@ def test_update_local_git_uses_env_inside_sudo(tmp_path, capsys) -> None:
     assert "cd /home/keks/checkout && exec git pull --rebase" not in cmdlog
     assert "cd /home/keks/checkout" in cmdlog
     assert "\ngit pull --rebase\n" in cmdlog
+    assert "uv sync" not in cmdlog
 
 
 def test_update_skips_proxy_project(tmp_path, capsys) -> None:
@@ -515,11 +619,11 @@ def test_create_wsgi_local_git_uses_checkout_and_updater(tmp_path, capsys) -> No
     assert "/home/demo/checkout" in cmdlog
     assert "/home/demo/checkout/.git" in cmdlog
     assert f"git clone {source_dir.resolve()} /home/demo/checkout" in cmdlog
-    assert "sudo -u demo -- sh -lc 'cd /home/demo/checkout && exec uv sync'" in cmdlog
+    assert "sudo -u demo -- sh -lc 'cd /home/demo/checkout && exec " in cmdlog
+    assert " sync'" in cmdlog
     assert "sudo -u demo -- sh -lc 'cd /home/demo/checkout && exec ln -sfn .venv venv'" in cmdlog
-    assert (
-        "sudo -u demo -- sh -lc 'cd /home/demo/checkout && exec uv run python -m demo.update'"
-    ) in cmdlog
+    assert "cd /home/demo/checkout && exec " in cmdlog
+    assert " run python -m demo.update'" in cmdlog
 
 
 def test_create_rejects_existing_user(tmp_path) -> None:

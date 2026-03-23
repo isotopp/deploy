@@ -28,7 +28,18 @@ def restart_httpd(options: CommonOptions) -> None:
     runner.run(["systemctl", "start", "httpd.service"])
     runner.run(["systemctl", "stop", "httpd.service"])
     runner.run(["systemctl", "start", "httpd.service"])
-    runner.run(["systemctl", "status", "httpd.service"])
+    runner.run(["systemctl", "--no-pager", "status", "httpd.service"])
+
+
+def start_httpd(options: CommonOptions) -> None:
+    runner = CommandRunner(options.execution)
+    runner.run(["systemctl", "start", "httpd.service"])
+    runner.run(["systemctl", "--no-pager", "status", "httpd.service"])
+
+
+def stop_httpd(options: CommonOptions) -> None:
+    runner = CommandRunner(options.execution)
+    runner.run(["systemctl", "stop", "httpd.service"])
 
 
 def restart_httpd_forced(options: CommonOptions) -> list[str]:
@@ -39,7 +50,7 @@ def restart_httpd_forced(options: CommonOptions) -> list[str]:
         ["systemctl", "start", "httpd.service"],
         ["systemctl", "stop", "httpd.service"],
         ["systemctl", "start", "httpd.service"],
-        ["systemctl", "status", "httpd.service"],
+        ["systemctl", "--no-pager", "status", "httpd.service"],
     ]
     for command in commands:
         result = runner.run(command, check=False)
@@ -112,6 +123,60 @@ def restart_project(name: str, options: CommonOptions) -> int:
         print(f"{label}: {path}")
     for warning in warnings:
         print(f"warning: {warning}")
+    if options.execution.command_log_path() is not None:
+        print(f"command_log: {options.execution.command_log_path()}")
+    return 0
+
+
+def start_project(name: str, options: CommonOptions) -> int:
+    store = ProjectStore(options.project_dir, context=options.execution)
+    project = store.load(name)
+    written, warnings = write_apache_state(project, options=options, store=store)
+    start_httpd(options)
+    if options.json_output:
+        print(
+            dump_json(
+                {
+                    "phase": "start",
+                    "mode": options.execution.mode.value,
+                    "project": project,
+                    "written": written,
+                    "warnings": warnings,
+                    "command_log": options.execution.command_log_path(),
+                }
+            )
+        )
+        return 0
+
+    print(f"mode: {options.execution.mode.value}")
+    for label, path in written.items():
+        print(f"{label}: {path}")
+    for warning in warnings:
+        print(f"warning: {warning}")
+    if options.execution.command_log_path() is not None:
+        print(f"command_log: {options.execution.command_log_path()}")
+    return 0
+
+
+def stop_project(name: str, options: CommonOptions) -> int:
+    store = ProjectStore(options.project_dir, context=options.execution)
+    project = store.load(name)
+    stop_httpd(options)
+    if options.json_output:
+        print(
+            dump_json(
+                {
+                    "phase": "stop",
+                    "mode": options.execution.mode.value,
+                    "project": project,
+                    "command_log": options.execution.command_log_path(),
+                }
+            )
+        )
+        return 0
+
+    print(f"mode: {options.execution.mode.value}")
+    print(f"project: {project.name}")
     if options.execution.command_log_path() is not None:
         print(f"command_log: {options.execution.command_log_path()}")
     return 0
@@ -243,6 +308,38 @@ def update_project(name: str, options: CommonOptions) -> int:
         print(f"working_tree: {plan.working_tree}")
     for command in plan.commands:
         print("command:", " ".join(command))
+    if options.execution.command_log_path() is not None:
+        print(f"command_log: {options.execution.command_log_path()}")
+    return 0
+
+
+def logs_project(name: str, options: CommonOptions) -> int:
+    store = ProjectStore(options.project_dir, context=options.execution)
+    project = store.load(name)
+    error_log = DeploySettings().paths.apache_log_dir / f"error-{project.hostname}.log"
+    access_log = DeploySettings().paths.apache_log_dir / f"access-{project.hostname}.log"
+    runner = CommandRunner(options.execution)
+    runner.run(["tail", "-F", str(error_log), str(access_log)])
+    if options.json_output:
+        print(
+            dump_json(
+                {
+                    "phase": "logs",
+                    "mode": options.execution.mode.value,
+                    "project": project,
+                    "files": {
+                        "error_log": error_log,
+                        "access_log": access_log,
+                    },
+                    "command_log": options.execution.command_log_path(),
+                }
+            )
+        )
+        return 0
+
+    print(f"mode: {options.execution.mode.value}")
+    print(f"error_log: {error_log}")
+    print(f"access_log: {access_log}")
     if options.execution.command_log_path() is not None:
         print(f"command_log: {options.execution.command_log_path()}")
     return 0

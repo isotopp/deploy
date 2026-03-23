@@ -86,3 +86,4 @@ def test_update_plan_for_local_git_uses_plain_git_pull(tmp_path) -> None:
     assert plan.supported is True
     assert plan.commands[0] == ("git", "reset", "--hard")
     assert plan.commands[1] == ("git", "pull", "--rebase")
+    assert len(plan.commands) == 2
