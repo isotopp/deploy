@@ -55,6 +55,10 @@ def seed_existing_apache_state(settings: DeploySettings) -> None:
         encoding="utf-8",
     )
     settings.paths.apache_sites_dir.mkdir(parents=True, exist_ok=True)
+    (settings.paths.apache_sites_dir / "grafana.home.koehntopp.de.conf").write_text(
+        "# generated\n",
+        encoding="utf-8",
+    )
     (settings.paths.apache_sites_dir / "webauthn.home.koehntopp.de.conf").write_text(
         "# generated\n",
         encoding="utf-8",
@@ -70,7 +74,6 @@ def test_bootstrap_default_writes_added_files_and_include(tmp_path) -> None:
         mode_ip_only=False,
     )
 
-    staged_httpd_conf = tmp_path / "stage" / "tmp" / "pytest-of-kris"
     assert result.external_ip is None
     assert "macros_conf" in result.written
     assert "ssldomain_conf" in result.written

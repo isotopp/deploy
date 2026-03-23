@@ -14,13 +14,32 @@ class ProjectStore:
     project_dir: Path
     context: ExecutionContext | None = None
 
+    def _target_dir(self) -> Path:
+        if self.context is not None and self.context.mode is RunMode.CONFIGTEST:
+            return self.context.stage_path(self.project_dir)
+        return self.project_dir
+
     def list_names(self) -> list[str]:
-        if not self.project_dir.exists():
+        if self.context is not None and self.context.mode is RunMode.CONFIGTEST:
+            names = set[str]()
+            for directory in (self.project_dir, self._target_dir()):
+                if directory.exists():
+                    names.update(path.name for path in directory.iterdir() if path.is_file())
+            return sorted(names)
+
+        target_dir = self._target_dir()
+        if not target_dir.exists():
             return []
-        return sorted(path.name for path in self.project_dir.iterdir() if path.is_file())
+        return sorted(path.name for path in target_dir.iterdir() if path.is_file())
 
     def load(self, name: str) -> DeployProject:
-        path = project_path(self.project_dir, name)
+        path = project_path(self._target_dir(), name)
+        if (
+            self.context is not None
+            and self.context.mode is RunMode.CONFIGTEST
+            and not path.exists()
+        ):
+            path = project_path(self.project_dir, name)
         if not path.exists():
             raise ProjectNotFoundError(f"project {name} does not exist")
         with path.open("r", encoding="utf-8") as handle:
@@ -28,10 +47,7 @@ class ProjectStore:
         return project_from_record(record, name=name)
 
     def save(self, project: DeployProject) -> Path:
-        path = project_path(self.project_dir, project.name)
-        target = path
-        if self.context is not None and self.context.mode is RunMode.CONFIGTEST:
-            target = self.context.stage_path(path)
+        target = project_path(self._target_dir(), project.name)
         if self.context is not None and self.context.mode is RunMode.DRY_RUN:
             return target
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -41,10 +57,7 @@ class ProjectStore:
         return target
 
     def delete(self, name: str) -> Path:
-        path = project_path(self.project_dir, name)
-        target = path
-        if self.context is not None and self.context.mode is RunMode.CONFIGTEST:
-            target = self.context.stage_path(path)
+        target = project_path(self._target_dir(), name)
         if self.context is not None and self.context.mode is RunMode.DRY_RUN:
             return target
         target.unlink(missing_ok=True)

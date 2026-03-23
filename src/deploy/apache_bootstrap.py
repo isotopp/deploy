@@ -6,7 +6,7 @@ from pathlib import Path
 
 import httpx
 
-from .apache import render_ssldomain_config
+from .apache import render_ssldomain_config, site_hostnames_from_dir
 from .fs import FileSystem
 from .runner import CommandRunner
 from .runtime import ExecutionContext, RunMode
@@ -413,17 +413,6 @@ def existing_ssldomain_hostnames(path: Path, fqdn: str) -> list[str]:
         return [hostname for hostname in hostnames if hostname != fqdn]
     return []
 
-
-def site_hostnames_from_dir(path: Path) -> list[str]:
-    if not path.exists():
-        return []
-    return sorted(
-        file.name.removesuffix(".conf")
-        for file in path.glob("*.conf")
-        if file.is_file() and file.name.endswith(".conf")
-    )
-
-
 def merge_hostnames(required: list[str], existing: list[str]) -> list[str]:
     seen: set[str] = set()
     merged: list[str] = []
@@ -443,18 +432,12 @@ class BootstrapResult:
 def bootstrap_added_files(settings: DeploySettings, fs: FileSystem) -> dict[str, Path]:
     paths = settings.paths
     fs.mkdir(paths.apache_sites_dir)
-    existing_hostnames = merge_hostnames(
-        existing_ssldomain_hostnames(paths.apache_tls_config, paths.machine_fqdn),
-        site_hostnames_from_dir(paths.apache_sites_dir),
-    )
+    existing_hostnames = site_hostnames_from_dir(paths.apache_sites_dir)
     written = {
         "macros_conf": fs.write_text(paths.apache_macros_config, macros_conf_content()),
         "ssldomain_conf": fs.write_text(
             paths.apache_tls_config,
-            render_ssldomain_config(
-                merge_hostnames(list(settings.ssl_domain_list), existing_hostnames),
-                fqdn=paths.machine_fqdn,
-            ),
+            render_ssldomain_config(existing_hostnames, fqdn=paths.machine_fqdn),
         ),
     }
     httpd_text = paths.httpd_conf.read_text(encoding="utf-8")
@@ -503,13 +486,7 @@ def bootstrap_all(
         # In configtest/dry-run the rotation is logged, not executed, so the
         # current httpd tree remains the only readable source of live state.
         hostname_source_root = httpd_root
-    existing_hostnames = merge_hostnames(
-        existing_ssldomain_hostnames(
-            hostname_source_root / "conf.d" / "ssldomain.conf",
-            paths.machine_fqdn,
-        ),
-        site_hostnames_from_dir(hostname_source_root / "conf.sites.d"),
-    )
+    existing_hostnames = site_hostnames_from_dir(hostname_source_root / "conf.sites.d")
     written: dict[str, Path] = {}
     written["httpd_conf"] = fs.write_text(paths.httpd_conf, render_httpd_conf(external_ip))
     written["ssl_conf"] = fs.write_text(paths.ssl_conf, SSL_CONF_CONTENT)
@@ -520,10 +497,7 @@ def bootstrap_all(
     written["macros_conf"] = fs.write_text(paths.apache_macros_config, macros_conf_content())
     written["ssldomain_conf"] = fs.write_text(
         paths.apache_tls_config,
-        render_ssldomain_config(
-            merge_hostnames(list(settings.ssl_domain_list), existing_hostnames),
-            fqdn=paths.machine_fqdn,
-        ),
+        render_ssldomain_config(existing_hostnames, fqdn=paths.machine_fqdn),
     )
     return written
 

@@ -23,9 +23,3 @@ class DeployPaths:
 @dataclass(frozen=True)
 class DeploySettings:
     paths: DeployPaths = field(default_factory=DeployPaths)
-    ssl_domain_list: tuple[str, ...] = (
-        "vaultwarden.home.koehntopp.de",
-        "unifi.home.koehntopp.de",
-        "kris.home.koehntopp.de",
-        "hass.home.koehntopp.de",
-    )

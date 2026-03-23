@@ -15,6 +15,34 @@ class UpdatePlan:
     reason: str | None = None
 
 
+def _resolved_source_path(source: str) -> Path:
+    path = Path(source).expanduser()
+    if path.is_absolute():
+        return path
+    return path.resolve()
+
+
+def _safe_directory_args(source_path: Path) -> tuple[str, ...]:
+    git_dir = source_path / ".git"
+    return (str(source_path), str(git_dir))
+
+
+def local_git_safe_directories(project: StaticSiteProject | WsgiSiteProject) -> tuple[str, ...]:
+    if project.source_type != "local_git":
+        return ()
+    source_path = _resolved_source_path(project.source)
+    return _safe_directory_args(source_path)
+
+
+def clone_command(
+    project: StaticSiteProject | WsgiSiteProject, checkout_path: Path
+) -> tuple[str, ...]:
+    source = project.source
+    if project.source_type == "local_git":
+        source = str(_resolved_source_path(project.source))
+    return ("git", "clone", source, str(checkout_path))
+
+
 def discover_updater(project_root: Path) -> tuple[str, ...] | None:
     pyproject_path = project_root / "pyproject.toml"
     if not pyproject_path.exists():
@@ -60,10 +88,8 @@ def build_update_plan(project: DeployProject) -> UpdatePlan:
             reason="project has no deployed working tree location",
         )
 
-    commands: list[tuple[str, ...]] = [
-        ("git", "reset", "--hard"),
-        ("git", "pull", "--rebase"),
-    ]
+    commands: list[tuple[str, ...]] = [("git", "reset", "--hard")]
+    commands.append(("git", "pull", "--rebase"))
     commands.append(("uv", "sync"))
     updater = discover_updater(working_tree)
     if updater is not None:

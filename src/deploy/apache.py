@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from socket import getfqdn
 
 from .models import (
@@ -73,6 +74,23 @@ def render_ssldomain_config(hostnames: list[str], *, fqdn: str | None = None) ->
     )
 
 
+def site_hostnames_from_dir(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    return sorted(
+        file.name.removesuffix(".conf")
+        for file in path.glob("*.conf")
+        if file.is_file() and file.name.endswith(".conf")
+    )
+
+
+def site_hostnames_from_dirs(paths: Sequence[Path]) -> list[str]:
+    hostnames: set[str] = set()
+    for path in paths:
+        hostnames.update(site_hostnames_from_dir(path))
+    return sorted(hostnames)
+
+
 def collect_hostnames(
     projects: Sequence[DeployProject],
     extra_hostnames: Sequence[str],
@@ -86,3 +104,17 @@ def collect_hostnames(
             seen.add(hostname)
             collected.append(hostname)
     return collected
+
+
+def collect_tls_hostnames(
+    projects: Sequence[DeployProject],
+    *,
+    apache_sites_dirs: Sequence[Path],
+    fqdn: str,
+) -> tuple[list[str], list[str]]:
+    managed_hostnames = sorted(project.hostname for project in projects)
+    discovered_hostnames = site_hostnames_from_dirs(apache_sites_dirs)
+    manual_hostnames = [
+        hostname for hostname in discovered_hostnames if hostname not in set(managed_hostnames)
+    ]
+    return collect_hostnames(projects, discovered_hostnames, fqdn=fqdn), manual_hostnames

@@ -7,11 +7,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from .apache import collect_hostnames, render_site_config, render_ssldomain_config
+from .apache import collect_tls_hostnames, render_site_config, render_ssldomain_config
 from .apache_bootstrap import run_bootstrap
 from .errors import CreatePreflightError
 from .fs import FileSystem
-from .gitops import build_update_plan, discover_updater
+from .gitops import build_update_plan, clone_command, discover_updater, local_git_safe_directories
 from .models import (
     DeployProject,
     ProxyProject,
@@ -34,7 +34,6 @@ class CommonOptions:
     apache_sites_dir: Path
     apache_tls_config: Path
     machine_fqdn: str
-    ssl_domain_list: tuple[str, ...]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -176,7 +175,6 @@ def _common_options(args: argparse.Namespace) -> CommonOptions:
         apache_sites_dir=args.apache_sites_dir,
         apache_tls_config=args.apache_tls_config,
         machine_fqdn=settings.paths.machine_fqdn,
-        ssl_domain_list=settings.ssl_domain_list,
     )
 
 
@@ -249,7 +247,7 @@ def _write_apache_state(
     *,
     options: CommonOptions,
     store: ProjectStore,
-) -> dict[str, Path]:
+) -> tuple[dict[str, Path], list[str]]:
     file_system = FileSystem(options.execution)
     site_config = render_site_config(project)
     project_file = store.save(project)
@@ -258,20 +256,30 @@ def _write_apache_state(
         site_config.content,
     )
     all_projects = [store.load(name) for name in store.list_names()]
-    hostnames = collect_hostnames(
+    apache_sites_dirs = [options.apache_sites_dir]
+    staged_sites_dir = file_system.context.stage_path(options.apache_sites_dir)
+    if staged_sites_dir != options.apache_sites_dir:
+        apache_sites_dirs.append(staged_sites_dir)
+    hostnames, manual_hostnames = collect_tls_hostnames(
         all_projects,
-        options.ssl_domain_list,
+        apache_sites_dirs=apache_sites_dirs,
         fqdn=options.machine_fqdn,
     )
     apache_tls_file = file_system.write_text(
         options.apache_tls_config,
         render_ssldomain_config(hostnames, fqdn=options.machine_fqdn),
     )
-    return {
-        "project_file": project_file,
-        "apache_site_file": apache_site_file,
-        "apache_tls_file": apache_tls_file,
-    }
+    return (
+        {
+            "project_file": project_file,
+            "apache_site_file": apache_site_file,
+            "apache_tls_file": apache_tls_file,
+        },
+        [
+            f"manual site domain included in ssldomain.conf: {hostname}"
+            for hostname in manual_hostnames
+        ],
+    )
 
 
 def _restart_httpd(options: CommonOptions) -> None:
@@ -334,8 +342,13 @@ def _provision_source_backed_project(project: DeployProject, options: CommonOpti
 
     runner.run(["useradd", "-m", "-c", f"Project {project.name} owner", project.username])
     runner.run(["mkdir", "-p", str(home_path)])
-    runner.run(["git", "clone", project.source, str(checkout_path)])
+    _configure_local_git_safe_directories(project, options)
     runner.run(["chown", "-R", f"{project.username}:{project.username}", str(home_path)])
+    runner.run(
+        list(clone_command(project, checkout_path)),
+        cwd=home_path,
+        username=project.username,
+    )
     if isinstance(project, WsgiSiteProject):
         runner.run(["uv", "sync"], cwd=checkout_path, username=project.username)
         runner.run(["ln", "-sfn", ".venv", "venv"], cwd=checkout_path, username=project.username)
@@ -349,7 +362,90 @@ def _provision_source_backed_project(project: DeployProject, options: CommonOpti
         runner.run(list(updater), cwd=checkout_path, username=project.username)
 
 
-def _write_tls_state(options: CommonOptions, store: ProjectStore) -> Path:
+def _configure_local_git_safe_directories(project: DeployProject, options: CommonOptions) -> None:
+    if not isinstance(project, (StaticSiteProject, WsgiSiteProject)):
+        return
+    runner = CommandRunner(options.execution)
+    for safe_directory in local_git_safe_directories(project):
+        runner.run(
+            ["git", "config", "--global", "--add", "safe.directory", safe_directory],
+            username=project.username,
+        )
+
+
+def _source_backed_home(project: DeployProject) -> Path | None:
+    if not isinstance(project, (StaticSiteProject, WsgiSiteProject)):
+        return None
+    home = project.home or _default_home(project.username)
+    return Path(home)
+
+
+def _source_backed_backup_path(project: DeployProject) -> Path | None:
+    home_path = _source_backed_home(project)
+    if home_path is None:
+        return None
+    return home_path.with_suffix(".tgz")
+
+
+def _ensure_delete_source_backed_target(project: DeployProject, options: CommonOptions) -> None:
+    return
+
+
+def _purge_source_backed_project(project: DeployProject, options: CommonOptions) -> Path | None:
+    if not isinstance(project, (StaticSiteProject, WsgiSiteProject)):
+        return None
+
+    home_path = _source_backed_home(project)
+    backup_path = _source_backed_backup_path(project)
+    if home_path is None or backup_path is None:
+        return None
+    checkout_path = home_path / project.project_dir
+
+    runner = CommandRunner(options.execution)
+    archive_planned = False
+    user_exists = True
+    try:
+        pwd.getpwnam(project.username)
+    except KeyError:
+        user_exists = False
+
+    if options.execution.mode is RunMode.CONFIGTEST:
+        runner.run(["rm", "-f", str(backup_path)])
+        runner.run(
+            [
+                "tar",
+                "--exclude",
+                str(checkout_path),
+                "-czf",
+                str(backup_path),
+                str(home_path),
+            ]
+        )
+        runner.run(["userdel", "-r", project.username])
+        return backup_path
+
+    if options.execution.mode is RunMode.DRY_RUN:
+        return backup_path
+
+    if home_path.exists():
+        runner.run(["rm", "-f", str(backup_path)])
+        runner.run(
+            [
+                "tar",
+                "--exclude",
+                str(checkout_path),
+                "-czf",
+                str(backup_path),
+                str(home_path),
+            ]
+        )
+        archive_planned = True
+    if user_exists:
+        runner.run(["userdel", "-r", project.username])
+    return backup_path if archive_planned else None
+
+
+def _write_tls_state(options: CommonOptions, store: ProjectStore) -> tuple[Path, list[str]]:
     return _write_tls_state_excluding(options, store, excluded_names=set())
 
 
@@ -358,17 +454,27 @@ def _write_tls_state_excluding(
     store: ProjectStore,
     *,
     excluded_names: set[str],
-) -> Path:
+) -> tuple[Path, list[str]]:
     file_system = FileSystem(options.execution)
     all_projects = [store.load(name) for name in store.list_names() if name not in excluded_names]
-    hostnames = collect_hostnames(
+    apache_sites_dirs = [options.apache_sites_dir]
+    staged_sites_dir = file_system.context.stage_path(options.apache_sites_dir)
+    if staged_sites_dir != options.apache_sites_dir:
+        apache_sites_dirs.append(staged_sites_dir)
+    hostnames, manual_hostnames = collect_tls_hostnames(
         all_projects,
-        options.ssl_domain_list,
+        apache_sites_dirs=apache_sites_dirs,
         fqdn=options.machine_fqdn,
     )
-    return file_system.write_text(
-        options.apache_tls_config,
-        render_ssldomain_config(hostnames, fqdn=options.machine_fqdn),
+    return (
+        file_system.write_text(
+            options.apache_tls_config,
+            render_ssldomain_config(hostnames, fqdn=options.machine_fqdn),
+        ),
+        [
+            f"manual site domain included in ssldomain.conf: {hostname}"
+            for hostname in manual_hostnames
+        ],
     )
 
 
@@ -377,7 +483,7 @@ def _create_project(project: DeployProject, options: CommonOptions) -> int:
     _ensure_fresh_source_backed_target(project, options)
     _provision_source_backed_project(project, options)
     store = ProjectStore(options.project_dir, context=options.execution)
-    written = _write_apache_state(project, options=options, store=store)
+    written, warnings = _write_apache_state(project, options=options, store=store)
     _restart_httpd(options)
     site_config = render_site_config(project)
     if options.json_output:
@@ -389,6 +495,7 @@ def _create_project(project: DeployProject, options: CommonOptions) -> int:
                     "project": project,
                     "written": written,
                     "apache_site": site_config,
+                    "warnings": warnings,
                     "command_log": options.execution.command_log_path(),
                 }
             )
@@ -398,6 +505,8 @@ def _create_project(project: DeployProject, options: CommonOptions) -> int:
     print(f"mode: {options.execution.mode.value}")
     for label, path in written.items():
         print(f"{label}: {path}")
+    for warning in warnings:
+        print(f"warning: {warning}")
     if options.execution.command_log_path() is not None:
         print(f"command_log: {options.execution.command_log_path()}")
     return 0
@@ -406,7 +515,7 @@ def _create_project(project: DeployProject, options: CommonOptions) -> int:
 def _restart_project(name: str, options: CommonOptions) -> int:
     store = ProjectStore(options.project_dir, context=options.execution)
     project = store.load(name)
-    written = _write_apache_state(project, options=options, store=store)
+    written, warnings = _write_apache_state(project, options=options, store=store)
     _restart_httpd(options)
     if options.json_output:
         print(
@@ -416,6 +525,7 @@ def _restart_project(name: str, options: CommonOptions) -> int:
                     "mode": options.execution.mode.value,
                     "project": project,
                     "written": written,
+                    "warnings": warnings,
                     "command_log": options.execution.command_log_path(),
                 }
             )
@@ -425,6 +535,8 @@ def _restart_project(name: str, options: CommonOptions) -> int:
     print(f"mode: {options.execution.mode.value}")
     for label, path in written.items():
         print(f"{label}: {path}")
+    for warning in warnings:
+        print(f"warning: {warning}")
     if options.execution.command_log_path() is not None:
         print(f"command_log: {options.execution.command_log_path()}")
     return 0
@@ -433,14 +545,16 @@ def _restart_project(name: str, options: CommonOptions) -> int:
 def _delete_project(name: str, options: CommonOptions) -> int:
     store = ProjectStore(options.project_dir, context=options.execution)
     project = store.load(name)
+    _ensure_delete_source_backed_target(project, options)
     deleted_project_file = store.delete(name)
     deleted_site_file = options.execution.stage_path(
         options.apache_sites_dir / f"{project.hostname}.conf"
     )
     if options.execution.mode is not RunMode.DRY_RUN:
         deleted_site_file.unlink(missing_ok=True)
-    tls_file = _write_tls_state_excluding(options, store, excluded_names={name})
+    tls_file, warnings = _write_tls_state_excluding(options, store, excluded_names={name})
     _restart_httpd(options)
+    backup_archive = _purge_source_backed_project(project, options)
     if options.json_output:
         print(
             dump_json(
@@ -451,8 +565,10 @@ def _delete_project(name: str, options: CommonOptions) -> int:
                     "deleted": {
                         "project_file": deleted_project_file,
                         "apache_site_file": deleted_site_file,
+                        "backup_archive": backup_archive,
                     },
                     "written": {"apache_tls_file": tls_file},
+                    "warnings": warnings,
                     "command_log": options.execution.command_log_path(),
                 }
             )
@@ -462,7 +578,11 @@ def _delete_project(name: str, options: CommonOptions) -> int:
     print(f"mode: {options.execution.mode.value}")
     print(f"deleted project_file: {deleted_project_file}")
     print(f"deleted apache_site_file: {deleted_site_file}")
+    if backup_archive is not None:
+        print(f"backup_archive: {backup_archive}")
     print(f"written apache_tls_file: {tls_file}")
+    for warning in warnings:
+        print(f"warning: {warning}")
     if options.execution.command_log_path() is not None:
         print(f"command_log: {options.execution.command_log_path()}")
     return 0
@@ -473,6 +593,8 @@ def _update_project(name: str, options: CommonOptions) -> int:
     project = store.load(name)
     plan = build_update_plan(project)
     runner = CommandRunner(options.execution)
+    if isinstance(project, (StaticSiteProject, WsgiSiteProject)):
+        _configure_local_git_safe_directories(project, options)
     if plan.supported and plan.working_tree is not None:
         for command in plan.commands:
             if isinstance(project, (StaticSiteProject, WsgiSiteProject)):
