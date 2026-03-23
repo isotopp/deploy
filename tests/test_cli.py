@@ -97,9 +97,11 @@ def test_create_static_site_does_not_uv_sync(tmp_path, capsys) -> None:
 
     assert exit_code == 0
     cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
-    assert "sudo -u keks -- git config --global --add safe.directory /home/codex/site" in cmdlog
+    assert "sudo -u keks -- sh -lc " in cmdlog
+    assert "cd /home/keks && exec git config --global --add safe.directory " in cmdlog
+    assert "/home/codex/site" in cmdlog
     assert (
-        "sudo -u keks -- git config --global --add safe.directory /home/codex/site/.git"
+        "cd /home/keks && exec git config --global --add safe.directory /home/codex/site/.git"
     ) in cmdlog
     assert (
         "sudo -u keks -- sh -lc 'cd /home/keks && exec git clone "
@@ -372,8 +374,9 @@ def test_update_local_git_uses_env_inside_sudo(tmp_path, capsys) -> None:
 
     assert exit_code == 0
     cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
-    assert "sudo -u keks -- git config --global --add safe.directory /home/kris/keks" in cmdlog
-    assert "sudo -u keks -- git config --global --add safe.directory /home/kris/keks/.git" in cmdlog
+    assert "cd /home/keks && exec git config --global --add safe.directory " in cmdlog
+    assert "/home/kris/keks" in cmdlog
+    assert "/home/kris/keks/.git" in cmdlog
     assert " git pull --rebase" in cmdlog
 
 
@@ -447,12 +450,9 @@ def test_create_wsgi_local_git_uses_checkout_and_updater(tmp_path, capsys) -> No
     assert '"project_dir": "checkout"' in out
     assert '"source_type": "local_git"' in out
     cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
-    assert (
-        f"sudo -u demo -- git config --global --add safe.directory {source_dir.resolve()}"
-    ) in cmdlog
-    assert (
-        f"sudo -u demo -- git config --global --add safe.directory {source_dir.resolve() / '.git'}"
-    ) in cmdlog
+    assert "cd /home/demo && exec git config --global --add safe.directory " in cmdlog
+    assert str(source_dir.resolve()) in cmdlog
+    assert str(source_dir.resolve() / ".git") in cmdlog
     assert (
         f"sudo -u demo -- sh -lc 'cd /home/demo && exec git clone {source_dir.resolve()} "
         "/home/demo/checkout'"
