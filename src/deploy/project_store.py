@@ -39,3 +39,13 @@ class ProjectStore:
             json.dump(project.to_record(), handle, indent=2, sort_keys=True)
             handle.write("\n")
         return target
+
+    def delete(self, name: str) -> Path:
+        path = project_path(self.project_dir, name)
+        target = path
+        if self.context is not None and self.context.mode is RunMode.CONFIGTEST:
+            target = self.context.stage_path(path)
+        if self.context is not None and self.context.mode is RunMode.DRY_RUN:
+            return target
+        target.unlink(missing_ok=True)
+        return target

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .apache import collect_hostnames, render_site_config, render_ssldomain_config
 from .fs import FileSystem
+from .gitops import build_update_plan
 from .models import (
     DeployProject,
     ProxyProject,
@@ -69,11 +70,23 @@ def build_parser() -> argparse.ArgumentParser:
     show_parser = subparsers.add_parser("show", help="show a project or list projects")
     show_parser.add_argument("name", help="project name or 'projects'")
 
+    delete_parser = subparsers.add_parser(
+        "delete",
+        help="remove project metadata and apache config, then restart httpd",
+    )
+    delete_parser.add_argument("name", help="project name")
+
     restart_parser = subparsers.add_parser(
         "restart",
         help="regenerate apache config and restart httpd",
     )
     restart_parser.add_argument("name", help="project name")
+
+    update_parser = subparsers.add_parser(
+        "update",
+        help="update a source-backed deployed working tree",
+    )
+    update_parser.add_argument("name", help="project name")
 
     create_parser = subparsers.add_parser(
         "create",
@@ -206,32 +219,6 @@ def _show_project(store: ProjectStore, name: str, *, json_output: bool) -> int:
     return 0
 
 
-def _create_preview(project: DeployProject, options: CommonOptions) -> int:
-    site_config = render_site_config(project)
-    project_file = options.project_dir / project.name
-    apache_file = options.apache_sites_dir / site_config.filename
-    if options.json_output:
-        print(
-            dump_json(
-                {
-                    "phase": "preview",
-                    "project": project,
-                    "project_file": project_file,
-                    "apache_site_file": apache_file,
-                    "apache_site": site_config,
-                }
-            )
-        )
-        return 0
-
-    print("phase-1 preview only")
-    print(f"project file: {project_file}")
-    print(f"apache site file: {apache_file}")
-    print()
-    print(site_config.content.rstrip())
-    return 0
-
-
 def _write_apache_state(
     project: DeployProject,
     *,
@@ -269,6 +256,29 @@ def _restart_httpd(options: CommonOptions) -> None:
     runner.run(["systemctl", "stop", "httpd.service"])
     runner.run(["systemctl", "start", "httpd.service"])
     runner.run(["systemctl", "status", "httpd.service"])
+
+
+def _write_tls_state(options: CommonOptions, store: ProjectStore) -> Path:
+    return _write_tls_state_excluding(options, store, excluded_names=set())
+
+
+def _write_tls_state_excluding(
+    options: CommonOptions,
+    store: ProjectStore,
+    *,
+    excluded_names: set[str],
+) -> Path:
+    file_system = FileSystem(options.execution)
+    all_projects = [store.load(name) for name in store.list_names() if name not in excluded_names]
+    hostnames = collect_hostnames(
+        all_projects,
+        options.ssl_domain_list,
+        fqdn=options.machine_fqdn,
+    )
+    return file_system.write_text(
+        options.apache_tls_config,
+        render_ssldomain_config(hostnames, fqdn=options.machine_fqdn),
+    )
 
 
 def _create_project(project: DeployProject, options: CommonOptions) -> int:
@@ -326,6 +336,82 @@ def _restart_project(name: str, options: CommonOptions) -> int:
     return 0
 
 
+def _delete_project(name: str, options: CommonOptions) -> int:
+    store = ProjectStore(options.project_dir, context=options.execution)
+    project = store.load(name)
+    deleted_project_file = store.delete(name)
+    deleted_site_file = options.execution.stage_path(
+        options.apache_sites_dir / f"{project.hostname}.conf"
+    )
+    if options.execution.mode is not RunMode.DRY_RUN:
+        deleted_site_file.unlink(missing_ok=True)
+    tls_file = _write_tls_state_excluding(options, store, excluded_names={name})
+    _restart_httpd(options)
+    if options.json_output:
+        print(
+            dump_json(
+                {
+                    "phase": "delete",
+                    "mode": options.execution.mode.value,
+                    "project": project,
+                    "deleted": {
+                        "project_file": deleted_project_file,
+                        "apache_site_file": deleted_site_file,
+                    },
+                    "written": {"apache_tls_file": tls_file},
+                    "command_log": options.execution.command_log_path(),
+                }
+            )
+        )
+        return 0
+
+    print(f"mode: {options.execution.mode.value}")
+    print(f"deleted project_file: {deleted_project_file}")
+    print(f"deleted apache_site_file: {deleted_site_file}")
+    print(f"written apache_tls_file: {tls_file}")
+    if options.execution.command_log_path() is not None:
+        print(f"command_log: {options.execution.command_log_path()}")
+    return 0
+
+
+def _update_project(name: str, options: CommonOptions) -> int:
+    store = ProjectStore(options.project_dir, context=options.execution)
+    project = store.load(name)
+    plan = build_update_plan(project)
+    runner = CommandRunner(options.execution)
+    if plan.supported and plan.working_tree is not None:
+        for command in plan.commands:
+            runner.run(list(command), cwd=plan.working_tree)
+    if options.json_output:
+        print(
+            dump_json(
+                {
+                    "phase": "update",
+                    "mode": options.execution.mode.value,
+                    "project": project,
+                    "supported": plan.supported,
+                    "working_tree": plan.working_tree,
+                    "commands": plan.commands,
+                    "reason": plan.reason,
+                    "command_log": options.execution.command_log_path(),
+                }
+            )
+        )
+        return 0
+
+    print(f"mode: {options.execution.mode.value}")
+    print(f"supported: {plan.supported}")
+    if plan.reason is not None:
+        print(f"reason: {plan.reason}")
+    if plan.working_tree is not None:
+        print(f"working_tree: {plan.working_tree}")
+    for command in plan.commands:
+        print("command:", " ".join(command))
+    if options.execution.command_log_path() is not None:
+        print(f"command_log: {options.execution.command_log_path()}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -339,8 +425,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         project = _build_project_from_args(args)
         return _create_project(project, options)
 
+    if args.command == "delete":
+        return _delete_project(args.name, options)
+
     if args.command == "restart":
         return _restart_project(args.name, options)
+
+    if args.command == "update":
+        return _update_project(args.name, options)
 
     parser.error(f"unsupported command: {args.command}")
     return 2
