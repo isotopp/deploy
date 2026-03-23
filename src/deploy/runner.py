@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from .errors import CommandExecutionError
 from .runtime import ExecutionContext, RunMode, shell_join
 
 
@@ -24,6 +25,7 @@ class CommandRunner:
         *,
         cwd: Path | None = None,
         username: str | None = None,
+        check: bool = True,
     ) -> CommandResult:
         command = tuple(argv)
         effective_command = command
@@ -31,7 +33,13 @@ class CommandRunner:
             effective_command = ("sudo", "-u", username, "--", *command)
         if self.context.mode is RunMode.LIVE:
             completed = subprocess.run(effective_command, cwd=cwd, check=False)
-            return CommandResult(argv=effective_command, returncode=completed.returncode)
+            result = CommandResult(argv=effective_command, returncode=completed.returncode)
+            if check and completed.returncode != 0:
+                joined_command = shell_join(effective_command)
+                raise CommandExecutionError(
+                    f"command failed with exit code {completed.returncode}: {joined_command}"
+                )
+            return result
 
         if self.context.mode is RunMode.CONFIGTEST:
             log_path = self.context.command_log_path()

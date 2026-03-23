@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .apache import collect_hostnames, render_site_config, render_ssldomain_config
+from .errors import CreatePreflightError
 from .fs import FileSystem
 from .gitops import build_update_plan, discover_updater
 from .models import (
@@ -276,6 +277,31 @@ def _prepare_project_for_create(project: DeployProject) -> DeployProject:
     return project
 
 
+def _ensure_fresh_source_backed_target(project: DeployProject, options: CommonOptions) -> None:
+    if not isinstance(project, (StaticSiteProject, WsgiSiteProject)):
+        return
+
+    if options.execution.mode is not RunMode.LIVE:
+        return
+
+    assert project.home is not None
+    home_path = Path(project.home)
+    checkout_path = home_path / project.project_dir
+
+    try:
+        pwd.getpwnam(project.username)
+    except KeyError:
+        pass
+    else:
+        raise CreatePreflightError(f"user already exists: {project.username}")
+
+    if options.execution.mode is RunMode.LIVE:
+        if home_path.exists():
+            raise CreatePreflightError(f"home already exists: {home_path}")
+        if checkout_path.exists():
+            raise CreatePreflightError(f"checkout already exists: {checkout_path}")
+
+
 def _provision_source_backed_project(project: DeployProject, options: CommonOptions) -> None:
     if not isinstance(project, (StaticSiteProject, WsgiSiteProject)):
         return
@@ -328,6 +354,7 @@ def _write_tls_state_excluding(
 
 def _create_project(project: DeployProject, options: CommonOptions) -> int:
     project = _prepare_project_for_create(project)
+    _ensure_fresh_source_backed_target(project, options)
     _provision_source_backed_project(project, options)
     store = ProjectStore(options.project_dir, context=options.execution)
     written = _write_apache_state(project, options=options, store=store)

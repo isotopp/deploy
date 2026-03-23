@@ -1,3 +1,4 @@
+from deploy.errors import CreatePreflightError
 from deploy.cli import main
 
 
@@ -292,3 +293,26 @@ def test_create_wsgi_local_git_uses_checkout_and_updater(tmp_path, capsys) -> No
     assert "sudo -u demo -- uv sync" in cmdlog
     assert "sudo -u demo -- ln -sfn .venv venv" in cmdlog
     assert "sudo -u demo -- uv run python -m demo.update" in cmdlog
+
+
+def test_create_rejects_existing_user(tmp_path) -> None:
+    try:
+        main(
+            [
+                "create",
+                "wsgi-site",
+                "demo",
+                "--hostname",
+                "demo.home.koehntopp.de",
+                "--source-type",
+                "git",
+                "--source",
+                "git@github.com:isotopp/demo.git",
+                "--username",
+                "root",
+            ]
+        )
+    except CreatePreflightError as exc:
+        assert "user already exists" in str(exc)
+    else:
+        raise AssertionError("expected CreatePreflightError")
