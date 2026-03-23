@@ -4,11 +4,12 @@ from .apache import render_site_config
 from .apache_bootstrap import run_bootstrap
 from .apache_state import write_apache_state, write_tls_state_excluding
 from .command_common import CommonOptions, prepare_project_for_create
+from .errors import ProjectNotFoundError
 from .gitops import build_update_plan
 from .models import DeployProject, StaticSiteProject, WsgiSiteProject
 from .output import dump_json
 from .project_store import ProjectStore
-from .runner import CommandRunner
+from .runner import CommandResult, CommandRunner
 from .runtime import RunMode
 from .settings import DeploySettings
 from .source_backed import (
@@ -28,6 +29,28 @@ def restart_httpd(options: CommonOptions) -> None:
     runner.run(["systemctl", "stop", "httpd.service"])
     runner.run(["systemctl", "start", "httpd.service"])
     runner.run(["systemctl", "status", "httpd.service"])
+
+
+def restart_httpd_forced(options: CommonOptions) -> list[str]:
+    runner = CommandRunner(options.execution)
+    warnings: list[str] = []
+    commands = [
+        ["systemctl", "stop", "httpd.service"],
+        ["systemctl", "start", "httpd.service"],
+        ["systemctl", "stop", "httpd.service"],
+        ["systemctl", "start", "httpd.service"],
+        ["systemctl", "status", "httpd.service"],
+    ]
+    for command in commands:
+        result = runner.run(command, check=False)
+        warnings.extend(_forced_command_warnings(result))
+    return warnings
+
+
+def _forced_command_warnings(result: CommandResult) -> list[str]:
+    if result.returncode == 0:
+        return []
+    return [f"forced cleanup command failed ({result.returncode}): {' '.join(result.argv)}"]
 
 
 def create_project(project: DeployProject, options: CommonOptions) -> int:
@@ -94,9 +117,42 @@ def restart_project(name: str, options: CommonOptions) -> int:
     return 0
 
 
-def delete_project(name: str, options: CommonOptions) -> int:
+def delete_project(name: str, options: CommonOptions, *, force: bool = False) -> int:
     store = ProjectStore(options.project_dir, context=options.execution)
-    project = store.load(name)
+    try:
+        project = store.load(name)
+    except ProjectNotFoundError:
+        if not force:
+            raise
+        warnings = [f"project already absent: {name}"]
+        if options.json_output:
+            print(
+                dump_json(
+                    {
+                        "phase": "delete",
+                        "mode": options.execution.mode.value,
+                        "force": force,
+                        "project": None,
+                        "deleted": {
+                            "project_file": None,
+                            "apache_site_file": None,
+                            "backup_archive": None,
+                        },
+                        "written": {"apache_tls_file": None},
+                        "warnings": warnings,
+                        "command_log": options.execution.command_log_path(),
+                    }
+                )
+            )
+            return 0
+
+        print(f"mode: {options.execution.mode.value}")
+        print(f"force: {force}")
+        for warning in warnings:
+            print(f"warning: {warning}")
+        if options.execution.command_log_path() is not None:
+            print(f"command_log: {options.execution.command_log_path()}")
+        return 0
     deleted_project_file = store.delete(name)
     deleted_site_file = options.execution.stage_path(
         options.apache_sites_dir / f"{project.hostname}.conf"
@@ -104,14 +160,21 @@ def delete_project(name: str, options: CommonOptions) -> int:
     if options.execution.mode is not RunMode.DRY_RUN:
         deleted_site_file.unlink(missing_ok=True)
     tls_file, warnings = write_tls_state_excluding(options, store, excluded_names={name})
-    restart_httpd(options)
-    backup_archive = purge_source_backed_project(project, options)
+    if force:
+        warnings.extend(restart_httpd_forced(options))
+        backup_archive, purge_warnings = purge_source_backed_project(project, options, force=True)
+        warnings.extend(purge_warnings)
+    else:
+        restart_httpd(options)
+        backup_archive, purge_warnings = purge_source_backed_project(project, options)
+        warnings.extend(purge_warnings)
     if options.json_output:
         print(
             dump_json(
                 {
                     "phase": "delete",
                     "mode": options.execution.mode.value,
+                    "force": force,
                     "project": project,
                     "deleted": {
                         "project_file": deleted_project_file,
@@ -127,6 +190,7 @@ def delete_project(name: str, options: CommonOptions) -> int:
         return 0
 
     print(f"mode: {options.execution.mode.value}")
+    print(f"force: {force}")
     print(f"deleted project_file: {deleted_project_file}")
     print(f"deleted apache_site_file: {deleted_site_file}")
     if backup_archive is not None:

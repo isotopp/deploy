@@ -68,6 +68,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="remove project metadata and apache config, then restart httpd",
     )
     delete_parser.add_argument("name", help="project name")
+    delete_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="continue cleanup even if restart or purge commands fail",
+    )
 
     restart_parser = subparsers.add_parser(
         "restart",
@@ -246,7 +251,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return create_project(build_project_from_args(args), options)
 
     if args.command == "delete":
-        return delete_project(args.name, options)
+        return delete_project(args.name, options, force=args.force)
 
     if args.command == "restart":
         return restart_project(args.name, options)

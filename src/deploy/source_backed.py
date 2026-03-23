@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pwd
+import subprocess
 from pathlib import Path
 
 from .command_common import CommonOptions, source_backed_backup_path, source_backed_home
@@ -70,25 +71,34 @@ def provision_source_backed_project(project: DeployProject, options: CommonOptio
 def configure_local_git_safe_directories(project: DeployProject, options: CommonOptions) -> None:
     if not isinstance(project, (StaticSiteProject, WsgiSiteProject)):
         return
+    desired_safe_directories = _desired_safe_directories(project)
+    existing_safe_directories = set()
+    if options.execution.mode is RunMode.LIVE:
+        existing_safe_directories = _existing_safe_directories()
     runner = CommandRunner(options.execution)
-    for safe_directory in local_git_safe_directories(project):
+    for safe_directory in desired_safe_directories:
+        if safe_directory in existing_safe_directories:
+            continue
         runner.run(
             ["git", "config", "--global", "--add", "safe.directory", safe_directory],
         )
 
 
-def purge_source_backed_project(project: DeployProject, options: CommonOptions) -> Path | None:
+def purge_source_backed_project(
+    project: DeployProject, options: CommonOptions, *, force: bool = False
+) -> tuple[Path | None, list[str]]:
     if not isinstance(project, (StaticSiteProject, WsgiSiteProject)):
-        return None
+        return None, []
 
     home_path = source_backed_home(project)
     backup_path = source_backed_backup_path(project)
     if home_path is None or backup_path is None:
-        return None
+        return None, []
     checkout_path = home_path / project.project_dir
 
     runner = CommandRunner(options.execution)
     archive_planned = False
+    warnings: list[str] = []
     user_exists = True
     try:
         pwd.getpwnam(project.username)
@@ -96,7 +106,7 @@ def purge_source_backed_project(project: DeployProject, options: CommonOptions) 
         user_exists = False
 
     if options.execution.mode is RunMode.CONFIGTEST:
-        runner.run(["rm", "-f", str(backup_path)])
+        runner.run(["rm", "-f", str(backup_path)], check=not force)
         runner.run(
             [
                 "tar",
@@ -105,17 +115,19 @@ def purge_source_backed_project(project: DeployProject, options: CommonOptions) 
                 "-czf",
                 str(backup_path),
                 str(home_path),
-            ]
+            ],
+            check=not force,
         )
-        runner.run(["userdel", "-r", project.username])
-        return backup_path
+        runner.run(["userdel", "-r", project.username], check=not force)
+        return backup_path, warnings
 
     if options.execution.mode is RunMode.DRY_RUN:
-        return backup_path
+        return backup_path, warnings
 
     if home_path.exists():
-        runner.run(["rm", "-f", str(backup_path)])
-        runner.run(
+        rm_result = runner.run(["rm", "-f", str(backup_path)], check=not force)
+        warnings.extend(_forced_warnings(rm_result, force))
+        tar_result = runner.run(
             [
                 "tar",
                 "--exclude",
@@ -123,9 +135,47 @@ def purge_source_backed_project(project: DeployProject, options: CommonOptions) 
                 "-czf",
                 str(backup_path),
                 str(home_path),
-            ]
+            ],
+            check=not force,
         )
-        archive_planned = True
+        warnings.extend(_forced_warnings(tar_result, force))
+        if tar_result.returncode == 0:
+            archive_planned = True
     if user_exists:
-        runner.run(["userdel", "-r", project.username])
-    return backup_path if archive_planned else None
+        userdel_result = runner.run(["userdel", "-r", project.username], check=not force)
+        warnings.extend(_forced_warnings(userdel_result, force))
+    return (backup_path if archive_planned else None), warnings
+
+
+def _forced_warnings(result, force: bool) -> list[str]:
+    if not force or result.returncode == 0:
+        return []
+    return [f"forced cleanup command failed ({result.returncode}): {' '.join(result.argv)}"]
+
+
+def _desired_safe_directories(project: StaticSiteProject | WsgiSiteProject) -> tuple[str, ...]:
+    checkout_path = Path(project.home or source_backed_home(project) or "") / project.project_dir
+    desired = [
+        *local_git_safe_directories(project),
+        str(checkout_path),
+        str(checkout_path / ".git"),
+    ]
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for path in desired:
+        if path and path not in seen:
+            seen.add(path)
+            deduped.append(path)
+    return tuple(deduped)
+
+
+def _existing_safe_directories() -> set[str]:
+    completed = subprocess.run(
+        ["git", "config", "--global", "--get-all", "safe.directory"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode not in {0, 1}:
+        return set()
+    return {line.strip() for line in completed.stdout.splitlines() if line.strip()}

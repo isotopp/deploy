@@ -101,6 +101,8 @@ def test_create_static_site_does_not_uv_sync(tmp_path, capsys) -> None:
     assert "git config --global --add safe.directory " in cmdlog
     assert "/home/codex/site" in cmdlog
     assert "/home/codex/site/.git" in cmdlog
+    assert "/home/keks/checkout" in cmdlog
+    assert "/home/keks/checkout/.git" in cmdlog
     assert "git clone /home/codex/site /home/keks/checkout" in cmdlog
     assert "uv sync" not in cmdlog
 
@@ -265,6 +267,63 @@ def test_delete_source_backed_in_configtest_logs_backup_and_userdel(tmp_path, ca
     assert "userdel -r keks" in cmdlog
 
 
+def test_delete_force_in_configtest_reports_force(tmp_path, capsys) -> None:
+    project_dir = tmp_path / "projects"
+    project_dir.mkdir()
+    (project_dir / "keks").write_text(
+        (
+            '{"type":"static_site","project":"keks","hostname":"keks.home.koehntopp.de",'
+            '"source_type":"local_git","source":"/home/kris/keks","username":"keks",'
+            '"projectdir":"checkout","home":"/home/keks"}\n'
+        ),
+        encoding="utf-8",
+    )
+    configtest_prefix = tmp_path / "staging"
+
+    exit_code = main(
+        [
+            "--json",
+            "--configtest",
+            str(configtest_prefix),
+            "--project-dir",
+            str(project_dir),
+            "delete",
+            "--force",
+            "keks",
+        ]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert '"force": true' in out
+    cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
+    assert "systemctl stop httpd.service" in cmdlog
+    assert "userdel -r keks" in cmdlog
+
+
+def test_delete_force_missing_project_is_noop(tmp_path, capsys) -> None:
+    project_dir = tmp_path / "projects"
+    project_dir.mkdir()
+
+    exit_code = main(
+        [
+            "--json",
+            "--dry-run",
+            "--project-dir",
+            str(project_dir),
+            "delete",
+            "--force",
+            "keks",
+        ]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert '"force": true' in out
+    assert '"project": null' in out
+    assert "project already absent: keks" in out
+
+
 def test_restart_warns_for_manual_site_domains(tmp_path, capsys) -> None:
     project_dir = tmp_path / "projects"
     project_dir.mkdir()
@@ -372,6 +431,8 @@ def test_update_local_git_uses_env_inside_sudo(tmp_path, capsys) -> None:
     assert "git config --global --add safe.directory " in cmdlog
     assert "/home/kris/keks" in cmdlog
     assert "/home/kris/keks/.git" in cmdlog
+    assert "/home/keks/checkout" in cmdlog
+    assert "/home/keks/checkout/.git" in cmdlog
     assert "cd /home/keks/checkout && exec git reset --hard" not in cmdlog
     assert "cd /home/keks/checkout && exec git pull --rebase" not in cmdlog
     assert "cd /home/keks/checkout" in cmdlog
@@ -451,6 +512,8 @@ def test_create_wsgi_local_git_uses_checkout_and_updater(tmp_path, capsys) -> No
     assert "git config --global --add safe.directory " in cmdlog
     assert str(source_dir.resolve()) in cmdlog
     assert str(source_dir.resolve() / ".git") in cmdlog
+    assert "/home/demo/checkout" in cmdlog
+    assert "/home/demo/checkout/.git" in cmdlog
     assert f"git clone {source_dir.resolve()} /home/demo/checkout" in cmdlog
     assert "sudo -u demo -- sh -lc 'cd /home/demo/checkout && exec uv sync'" in cmdlog
     assert "sudo -u demo -- sh -lc 'cd /home/demo/checkout && exec ln -sfn .venv venv'" in cmdlog
