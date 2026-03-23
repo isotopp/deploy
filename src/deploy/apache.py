@@ -30,7 +30,11 @@ def render_site_config(project: DeployProject) -> ApacheSiteConfig:
 
 def _render_site_body(project: DeployProject) -> str:
     if isinstance(project, StaticSiteProject):
-        return f"\nUse VHost {project.hostname}\n# vim: syntax=apache ts=4 sw=4 sts=4 sr noet\n"
+        appdir = f"{project.home}/{project.project_dir}" if project.home else project.project_dir
+        return (
+            f"\nUse StaticVHost {project.hostname} {appdir}\n"
+            "# vim: syntax=apache ts=4 sw=4 sts=4 sr noet\n"
+        )
     if isinstance(project, RedirectSiteProject):
         return (
             f"\nUse RedirectVHost {project.hostname} {project.to_hostname}\n"

@@ -8,7 +8,9 @@ version = "0.1.0"
 description = "Apache deployment management tool"
 readme = "REFACTORING.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+  "httpx>=0.28.0",
+]
 
 [project.scripts]
 deploy = "deploy.cli:main"

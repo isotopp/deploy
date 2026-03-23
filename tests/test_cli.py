@@ -64,6 +64,43 @@ def test_create_wsgi_subcommand_parses_type_specific_options(capsys) -> None:
     assert '"source": "git@github.com:isotopp/webauthn-test.git"' in out
 
 
+def test_create_static_site_does_not_uv_sync(tmp_path, capsys) -> None:
+    configtest_prefix = tmp_path / "staging"
+    project_dir = tmp_path / "projects"
+    apache_sites_dir = tmp_path / "sites"
+    apache_tls_config = tmp_path / "conf.d" / "ssldomain.conf"
+
+    exit_code = main(
+        [
+            "--json",
+            "--configtest",
+            str(configtest_prefix),
+            "--project-dir",
+            str(project_dir),
+            "--apache-sites-dir",
+            str(apache_sites_dir),
+            "--apache-tls-config",
+            str(apache_tls_config),
+            "create",
+            "static-site",
+            "keks",
+            "--hostname",
+            "keks.home.koehntopp.de",
+            "--source-type",
+            "local_git",
+            "--source",
+            "/home/codex/site",
+            "--username",
+            "keks",
+        ]
+    )
+
+    assert exit_code == 0
+    cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
+    assert "git clone /home/codex/site /home/keks/checkout" in cmdlog
+    assert "uv sync" not in cmdlog
+
+
 def test_configtest_writes_staged_files_and_command_log(tmp_path, capsys) -> None:
     project_dir = tmp_path / "projects"
     apache_sites_dir = tmp_path / "apache-sites"

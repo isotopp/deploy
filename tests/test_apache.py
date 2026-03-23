@@ -1,5 +1,5 @@
 from deploy.apache import render_site_config
-from deploy.models import ProxyProject, WsgiSiteProject
+from deploy.models import ProxyProject, StaticSiteProject, WsgiSiteProject
 
 
 def test_renders_simple_proxy_macro_output() -> None:
@@ -33,3 +33,20 @@ def test_renders_wsgi_macro_output() -> None:
 
     assert "Use PyApp webauthn.home.koehntopp.de webauthn" in config.content
     assert "/home/webauthn/webauthn" in config.content
+
+
+def test_renders_static_macro_output_with_docroot() -> None:
+    project = StaticSiteProject(
+        name="keks",
+        project_type="static_site",
+        hostname="keks.home.koehntopp.de",
+        source_type="local_git",
+        source="/home/codex/site",
+        username="keks",
+        project_dir="checkout",
+        home="/home/keks",
+    )
+
+    config = render_site_config(project)
+
+    assert "Use StaticVHost keks.home.koehntopp.de /home/keks/checkout" in config.content

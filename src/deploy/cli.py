@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .apache import collect_hostnames, render_site_config, render_ssldomain_config
+from .apache_bootstrap import run_bootstrap
 from .errors import CreatePreflightError
 from .fs import FileSystem
 from .gitops import build_update_plan, discover_updater
@@ -134,6 +135,24 @@ def build_parser() -> argparse.ArgumentParser:
     wsgi_parser.add_argument("--project-dir-name", default=None)
     wsgi_parser.add_argument("--home", default=None)
 
+    bootstrap_parser = subparsers.add_parser(
+        "bootstrap-apache",
+        help="manage the shared apache baseline",
+    )
+    bootstrap_mode_group = bootstrap_parser.add_mutually_exclusive_group()
+    bootstrap_mode_group.add_argument(
+        "--all",
+        action="store_true",
+        dest="bootstrap_all",
+        help="replace the managed apache baseline after rotating /etc/httpd to /etc/httpd.bak",
+    )
+    bootstrap_mode_group.add_argument(
+        "--ip",
+        action="store_true",
+        dest="bootstrap_ip_only",
+        help="only refresh the server-status/server-info IP restriction lines",
+    )
+
     return parser
 
 
@@ -257,6 +276,8 @@ def _write_apache_state(
 
 def _restart_httpd(options: CommonOptions) -> None:
     runner = CommandRunner(options.execution)
+    # mod_md may provision a certificate on the first restart cycle and only
+    # activate it on the second cycle, so this double restart is intentional.
     runner.run(["systemctl", "stop", "httpd.service"])
     runner.run(["systemctl", "start", "httpd.service"])
     runner.run(["systemctl", "stop", "httpd.service"])
@@ -315,9 +336,8 @@ def _provision_source_backed_project(project: DeployProject, options: CommonOpti
     runner.run(["mkdir", "-p", str(home_path)])
     runner.run(["git", "clone", project.source, str(checkout_path)])
     runner.run(["chown", "-R", f"{project.username}:{project.username}", str(home_path)])
-    runner.run(["uv", "sync"], cwd=checkout_path, username=project.username)
-
     if isinstance(project, WsgiSiteProject):
+        runner.run(["uv", "sync"], cwd=checkout_path, username=project.username)
         runner.run(["ln", "-sfn", ".venv", "venv"], cwd=checkout_path, username=project.username)
 
     updater: tuple[str, ...] | None = None
@@ -489,6 +509,41 @@ def _update_project(name: str, options: CommonOptions) -> int:
     return 0
 
 
+def _bootstrap_apache(args: argparse.Namespace, options: CommonOptions) -> int:
+    result = run_bootstrap(
+        settings=DeploySettings(),
+        context=options.execution,
+        mode_all=args.bootstrap_all,
+        mode_ip_only=args.bootstrap_ip_only,
+    )
+    if options.json_output:
+        print(
+            dump_json(
+                {
+                    "phase": "bootstrap_apache",
+                    "mode": options.execution.mode.value,
+                    "all": args.bootstrap_all,
+                    "ip_only": args.bootstrap_ip_only,
+                    "written": result.written,
+                    "external_ip": result.external_ip,
+                    "command_log": options.execution.command_log_path(),
+                }
+            )
+        )
+        return 0
+
+    print(f"mode: {options.execution.mode.value}")
+    print(f"bootstrap_all: {args.bootstrap_all}")
+    print(f"bootstrap_ip_only: {args.bootstrap_ip_only}")
+    if result.external_ip is not None:
+        print(f"external_ip: {result.external_ip}")
+    for label, path in result.written.items():
+        print(f"{label}: {path}")
+    if options.execution.command_log_path() is not None:
+        print(f"command_log: {options.execution.command_log_path()}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -510,6 +565,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "update":
         return _update_project(args.name, options)
+
+    if args.command == "bootstrap-apache":
+        return _bootstrap_apache(args, options)
 
     parser.error(f"unsupported command: {args.command}")
     return 2

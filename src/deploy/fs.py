@@ -10,6 +10,13 @@ from .runtime import ExecutionContext, RunMode
 class FileSystem:
     context: ExecutionContext
 
+    def mkdir(self, path: Path) -> Path:
+        target = self.context.stage_path(path)
+        if self.context.mode is RunMode.DRY_RUN:
+            return target
+        target.mkdir(parents=True, exist_ok=True)
+        return target
+
     def write_text(self, path: Path, content: str) -> Path:
         target = self.context.stage_path(path)
         if self.context.mode is RunMode.DRY_RUN:
