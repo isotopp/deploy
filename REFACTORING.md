@@ -9,6 +9,8 @@ Replace the current single-file `deploy` script with a packaged Python applicati
 - preserves at least the current supported workflows
 - improves structure, safety, validation, and testability
 - supports future generalization beyond the current Apache-only setup where practical
+- supports source trees from local Git checkouts and generic repository URLs, not only GitHub SSH URLs
+- supports `--json` output for machine-readable workflows
 
 ## Current Script Summary
 
@@ -136,6 +138,7 @@ This is a major reason the refactor should treat Apache site definition as a fir
 - Type-specific fields are not modeled explicitly.
 - Placeholder values such as `/fake_home` and `/fake_pubkey` leak into persisted config for non-user-backed project types.
 - `/etc/projects` is not rich enough to describe several live Apache sites currently in production.
+- source location handling is hardcoded around the legacy `github` field and `git@github.com:...` assumptions
 - There are field inconsistencies and bugs:
   - `to_hostame` is misspelled when writing redirect project files.
   - validation checks `args.to_host`, but the CLI argument is `to_hostname`.
@@ -230,7 +233,7 @@ Common fields:
 - `username | None`
 - `home | None`
 - `project_dir | None`
-- `repo | None`
+- `source | None`
 
 Type-specific models:
 
@@ -245,6 +248,7 @@ Notes:
 - Replace fake persisted values with optional fields.
 - Store only semantically meaningful data in `/etc/projects`.
 - Keep model construction separate from validation so compatibility loading from older JSON is still manageable.
+- Treat legacy `github` as a compatibility input that maps to a more general `source` field.
 
 ### Revised site taxonomy
 
@@ -306,6 +310,7 @@ Examples:
 
 - `deploy create proxy immich --hostname immich.home.koehntopp.de --port 2283`
 - `deploy create wsgi-site webauthn --hostname webauthn.home.koehntopp.de --repo git@github.com:isotopp/webauthn-test.git --username webauthn`
+- `deploy create wsgi-site webauthn --hostname webauthn.home.koehntopp.de --source git@github.com:isotopp/webauthn-test.git --username webauthn`
 - `deploy create redirect-site oldsite --hostname old.example.com --to-hostname new.example.com`
 
 ### CLI design requirements
@@ -455,7 +460,7 @@ Current output is print-driven. Refactor to:
 - present user-friendly CLI output at the edge
 - keep `--dry-run`
 - add `--verbose`
-- optionally add machine-readable output later, for example `--json`
+- support machine-readable output via `--json`
 - ensure help text is hierarchical and type-specific rather than one flat list of mostly irrelevant flags
 
 ## Migration Strategy
@@ -506,6 +511,7 @@ Test:
 
 - project model validation
 - compatibility loading of existing `/etc/projects/*` JSON
+- compatibility loading of legacy `github` source definitions
 - Apache rendering for all project types
 - systemd rendering
 - rsyslog/logrotate rendering
@@ -572,6 +578,7 @@ These behaviors should remain supported in the first refactor release:
 - keep `show`, `restart`, and `update` behavior available
 - keep `proxy`, `redirect_site`, `static_site`, and `wsgi_site`
 - expose creation through the new `create <type> <name>` CLI shape, even if read compatibility still accepts legacy type names internally
+- accept both legacy `github` metadata and newer generalized `source` metadata
 
 And the design should explicitly acknowledge that some current live sites cannot yet be losslessly imported from the existing `/etc/projects` model.
 

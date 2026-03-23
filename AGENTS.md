@@ -46,6 +46,8 @@
   - target runtime is `uv` with `--managed-python`, not the system Python
   - preferred CLI shape is `uv run --managed-python deploy create <type> <name> ...`
   - create-time options should be type-specific, not one shared option bag
+  - source trees may come from local Git trees or generic repo URLs, not only `git@github.com`
+  - read-oriented commands should support `--json` output
   - Python style preferences: `dataclasses`, `pathlib`, and `httpx` if HTTP is needed
   - project tooling preferences: `pytest`, `ty`, and `ruff`
 
