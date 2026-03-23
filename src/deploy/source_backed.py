@@ -61,6 +61,7 @@ def provision_source_backed_project(project: DeployProject, options: CommonOptio
         username=clone_username,
     )
     runner.run(["chown", "-R", f"{project.username}:{project.username}", str(home_path)])
+    normalize_static_site_permissions(project, options)
     if isinstance(project, WsgiSiteProject):
         runner.run([resolved_uv_executable(), "sync"], cwd=checkout_path, username=project.username)
         runner.run(["ln", "-sfn", ".venv", "venv"], cwd=checkout_path, username=project.username)
@@ -155,6 +156,20 @@ def purge_source_backed_project(
         userdel_result = runner.run(["userdel", "-r", project.username], check=not force)
         warnings.extend(_forced_warnings(userdel_result, force))
     return (backup_path if archive_planned else None), warnings
+
+
+def normalize_static_site_permissions(project: DeployProject, options: CommonOptions) -> None:
+    if not isinstance(project, StaticSiteProject):
+        return
+
+    home_path = source_backed_home(project)
+    if home_path is None:
+        return
+    checkout_path = home_path / project.project_dir
+
+    runner = CommandRunner(options.execution)
+    runner.run(["chmod", "711", str(home_path)])
+    runner.run(["chmod", "-R", "a+rX", str(checkout_path)])
 
 
 def _forced_warnings(result, force: bool) -> list[str]:

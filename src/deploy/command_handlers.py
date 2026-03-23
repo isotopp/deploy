@@ -15,6 +15,7 @@ from .settings import DeploySettings
 from .source_backed import (
     configure_local_git_safe_directories,
     ensure_fresh_source_backed_target,
+    normalize_static_site_permissions,
     provision_source_backed_project,
     purge_source_backed_project,
 )
@@ -283,6 +284,7 @@ def update_project(name: str, options: CommonOptions) -> int:
                 runner.run(list(command), cwd=plan.working_tree, username=project.username)
             else:
                 runner.run(list(command), cwd=plan.working_tree)
+        normalize_static_site_permissions(project, options)
     if options.json_output:
         print(
             dump_json(

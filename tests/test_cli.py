@@ -104,6 +104,8 @@ def test_create_static_site_does_not_uv_sync(tmp_path, capsys) -> None:
     assert "/home/keks/checkout" in cmdlog
     assert "/home/keks/checkout/.git" in cmdlog
     assert "git clone /home/codex/site /home/keks/checkout" in cmdlog
+    assert "chmod 711 /home/keks" in cmdlog
+    assert "chmod -R a+rX /home/keks/checkout" in cmdlog
     assert "uv sync" not in cmdlog
 
 
@@ -540,6 +542,8 @@ def test_update_local_git_uses_env_inside_sudo(tmp_path, capsys) -> None:
     assert "cd /home/keks/checkout && exec git pull --rebase" not in cmdlog
     assert "cd /home/keks/checkout" in cmdlog
     assert "\ngit pull --rebase\n" in cmdlog
+    assert "chmod 711 /home/keks" in cmdlog
+    assert "chmod -R a+rX /home/keks/checkout" in cmdlog
     assert "uv sync" not in cmdlog
 
 
