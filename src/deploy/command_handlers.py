@@ -148,7 +148,9 @@ def update_project(name: str, options: CommonOptions) -> int:
         configure_local_git_safe_directories(project, options)
     if plan.supported and plan.working_tree is not None:
         for command in plan.commands:
-            if isinstance(project, (StaticSiteProject, WsgiSiteProject)):
+            if isinstance(project, (StaticSiteProject, WsgiSiteProject)) and (
+                project.source_type != "local_git" or command[0] != "git"
+            ):
                 runner.run(list(command), cwd=plan.working_tree, username=project.username)
             else:
                 runner.run(list(command), cwd=plan.working_tree)

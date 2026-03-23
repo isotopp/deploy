@@ -47,12 +47,13 @@ def provision_source_backed_project(project: DeployProject, options: CommonOptio
     runner.run(["useradd", "-m", "-c", f"Project {project.name} owner", project.username])
     runner.run(["mkdir", "-p", str(home_path)])
     configure_local_git_safe_directories(project, options)
-    runner.run(["chown", "-R", f"{project.username}:{project.username}", str(home_path)])
+    clone_username = project.username if project.source_type == "git" else None
     runner.run(
         list(clone_command(project, checkout_path)),
         cwd=home_path,
-        username=project.username,
+        username=clone_username,
     )
+    runner.run(["chown", "-R", f"{project.username}:{project.username}", str(home_path)])
     if isinstance(project, WsgiSiteProject):
         runner.run(["uv", "sync"], cwd=checkout_path, username=project.username)
         runner.run(["ln", "-sfn", ".venv", "venv"], cwd=checkout_path, username=project.username)
@@ -70,12 +71,9 @@ def configure_local_git_safe_directories(project: DeployProject, options: Common
     if not isinstance(project, (StaticSiteProject, WsgiSiteProject)):
         return
     runner = CommandRunner(options.execution)
-    home_path = source_backed_home(project)
     for safe_directory in local_git_safe_directories(project):
         runner.run(
             ["git", "config", "--global", "--add", "safe.directory", safe_directory],
-            cwd=home_path,
-            username=project.username,
         )
 
 
