@@ -44,7 +44,7 @@ def test_create_wsgi_subcommand_parses_type_specific_options(capsys) -> None:
             "--json",
             "--dry-run",
             "create",
-            "wsgi-site",
+            "wsgi",
             "webauthn",
             "--hostname",
             "webauthn.home.koehntopp.de",
@@ -82,7 +82,7 @@ def test_create_static_site_does_not_uv_sync(tmp_path, capsys) -> None:
             "--apache-tls-config",
             str(apache_tls_config),
             "create",
-            "static-site",
+            "static",
             "keks",
             "--hostname",
             "keks.home.koehntopp.de",
@@ -107,6 +107,52 @@ def test_create_static_site_does_not_uv_sync(tmp_path, capsys) -> None:
     assert "chmod 711 /home/keks" in cmdlog
     assert "chmod -R a+rX /home/keks/checkout" in cmdlog
     assert "uv sync" not in cmdlog
+
+
+def test_create_redirect_only_writes_config_and_restarts(tmp_path, capsys) -> None:
+    configtest_prefix = tmp_path / "staging"
+    project_dir = tmp_path / "projects"
+    apache_sites_dir = tmp_path / "sites"
+    apache_tls_config = tmp_path / "conf.d" / "ssldomain.conf"
+
+    exit_code = main(
+        [
+            "--json",
+            "--configtest",
+            str(configtest_prefix),
+            "--project-dir",
+            str(project_dir),
+            "--apache-sites-dir",
+            str(apache_sites_dir),
+            "--apache-tls-config",
+            str(apache_tls_config),
+            "create",
+            "redirect",
+            "docs",
+            "--hostname",
+            "docs.home.koehntopp.de",
+            "--to-hostname",
+            "server.home.koehntopp.de",
+        ]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert '"project_type": "redirect_site"' in out
+    cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
+    assert "useradd " not in cmdlog
+    assert "git clone " not in cmdlog
+    assert "uv sync" not in cmdlog
+    assert "systemctl stop httpd.service" in cmdlog
+    assert "systemctl start httpd.service" in cmdlog
+    staged_site = (
+        configtest_prefix
+        / apache_sites_dir.relative_to(apache_sites_dir.anchor)
+        / "docs.home.koehntopp.de.conf"
+    )
+    assert "Use RedirectVHost docs.home.koehntopp.de server.home.koehntopp.de" in (
+        staged_site.read_text(encoding="utf-8")
+    )
 
 
 def test_configtest_writes_staged_files_and_command_log(tmp_path, capsys) -> None:
@@ -599,7 +645,7 @@ def test_create_wsgi_local_git_uses_checkout_and_updater(tmp_path, capsys) -> No
             "--apache-tls-config",
             str(apache_tls_config),
             "create",
-            "wsgi-site",
+            "wsgi",
             "demo",
             "--hostname",
             "demo.home.koehntopp.de",
@@ -635,7 +681,7 @@ def test_create_rejects_existing_user(tmp_path) -> None:
         main(
             [
                 "create",
-                "wsgi-site",
+                "wsgi",
                 "demo",
                 "--hostname",
                 "demo.home.koehntopp.de",
