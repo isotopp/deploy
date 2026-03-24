@@ -98,6 +98,7 @@ def test_create_static_site_does_not_uv_sync(tmp_path, capsys) -> None:
     assert exit_code == 0
     cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
     assert "sudo -u keks -- sh -lc " not in cmdlog
+    assert "useradd -m -c 'Website owner keks.home.koehntopp.de' keks" in cmdlog
     assert "git config --global --add safe.directory " in cmdlog
     assert "/home/codex/site" in cmdlog
     assert "/home/codex/site/.git" in cmdlog
@@ -663,6 +664,7 @@ def test_create_wsgi_local_git_uses_checkout_and_updater(tmp_path, capsys) -> No
     assert '"project_dir": "checkout"' in out
     assert '"source_type": "local_git"' in out
     cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
+    assert "useradd -m -c 'Website owner demo.home.koehntopp.de' demo" in cmdlog
     assert "git config --global --add safe.directory " in cmdlog
     assert str(source_dir.resolve()) in cmdlog
     assert str(source_dir.resolve() / ".git") in cmdlog

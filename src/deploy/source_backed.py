@@ -17,6 +17,8 @@ from .models import DeployProject, StaticSiteProject, WsgiSiteProject
 from .runner import CommandRunner
 from .runtime import RunMode
 
+MANAGED_USER_GECOS_PREFIX = "Website owner "
+
 
 def ensure_fresh_source_backed_target(project: DeployProject, options: CommonOptions) -> None:
     if not isinstance(project, (StaticSiteProject, WsgiSiteProject)):
@@ -51,7 +53,7 @@ def provision_source_backed_project(project: DeployProject, options: CommonOptio
     checkout_path = home_path / project.project_dir
     runner = CommandRunner(options.execution)
 
-    runner.run(["useradd", "-m", "-c", f"Project {project.name} owner", project.username])
+    runner.run(["useradd", "-m", "-c", managed_user_gecos(project.hostname), project.username])
     runner.run(["mkdir", "-p", str(home_path)])
     configure_local_git_safe_directories(project, options)
     clone_username = project.username if project.source_type == "git" else None
@@ -110,11 +112,11 @@ def purge_source_backed_project(
     runner = CommandRunner(options.execution)
     archive_planned = False
     warnings: list[str] = []
-    user_exists = True
+    user_record = None
     try:
-        pwd.getpwnam(project.username)
+        user_record = pwd.getpwnam(project.username)
     except KeyError:
-        user_exists = False
+        user_record = None
 
     if options.execution.mode is RunMode.CONFIGTEST:
         runner.run(["rm", "-f", str(backup_path)], check=not force)
@@ -135,6 +137,18 @@ def purge_source_backed_project(
     if options.execution.mode is RunMode.DRY_RUN:
         return backup_path, warnings
 
+    if user_record is not None and not managed_user_matches_hostname(
+        gecos=user_record.pw_gecos,
+        hostname=project.hostname,
+    ):
+        warnings.append(
+            f"refusing to delete unmanaged user {project.username}: "
+            "gecos "
+            f"{user_record.pw_gecos!r} does not match "
+            f"{managed_user_gecos(project.hostname)!r}"
+        )
+        return None, warnings
+
     if home_path.exists():
         rm_result = runner.run(["rm", "-f", str(backup_path)], check=not force)
         warnings.extend(_forced_warnings(rm_result, force))
@@ -152,7 +166,7 @@ def purge_source_backed_project(
         warnings.extend(_forced_warnings(tar_result, force))
         if tar_result.returncode == 0:
             archive_planned = True
-    if user_exists:
+    if user_record is not None:
         userdel_result = runner.run(["userdel", "-r", project.username], check=not force)
         warnings.extend(_forced_warnings(userdel_result, force))
     return (backup_path if archive_planned else None), warnings
@@ -176,6 +190,15 @@ def _forced_warnings(result, force: bool) -> list[str]:
     if not force or result.returncode == 0:
         return []
     return [f"forced cleanup command failed ({result.returncode}): {' '.join(result.argv)}"]
+
+
+def managed_user_gecos(hostname: str) -> str:
+    return f"{MANAGED_USER_GECOS_PREFIX}{hostname}"
+
+
+def managed_user_matches_hostname(*, gecos: str, hostname: str) -> bool:
+    expected = managed_user_gecos(hostname)
+    return gecos.startswith(MANAGED_USER_GECOS_PREFIX) and gecos == expected
 
 
 def _desired_safe_directories(project: StaticSiteProject | WsgiSiteProject) -> tuple[str, ...]:
