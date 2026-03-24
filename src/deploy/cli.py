@@ -118,7 +118,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     redirect_parser = create_subparsers.add_parser(
         "redirect",
-        aliases=["redirect-site", "redirect_site"],
         help="create a redirect site preview",
     )
     add_common_create_args(redirect_parser)
@@ -126,7 +125,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     static_parser = create_subparsers.add_parser(
         "static",
-        aliases=["static-site", "static_site"],
         help="create a static site preview",
     )
     add_common_create_args(static_parser)
@@ -138,7 +136,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     wsgi_parser = create_subparsers.add_parser(
         "wsgi",
-        aliases=["wsgi-site", "wsgi_site"],
         help="create a WSGI site preview",
     )
     add_common_create_args(wsgi_parser)
@@ -193,14 +190,14 @@ def common_options(args: argparse.Namespace) -> CommonOptions:
 
 
 def build_project_from_args(args: argparse.Namespace) -> DeployProject:
-    if args.project_type in {"redirect", "redirect-site", "redirect_site"}:
+    if args.project_type == "redirect":
         return RedirectSiteProject(
             name=args.name,
             project_type="redirect_site",
             hostname=args.hostname,
             to_hostname=args.to_hostname,
         )
-    if args.project_type in {"static", "static-site", "static_site"}:
+    if args.project_type == "static":
         return StaticSiteProject(
             name=args.name,
             project_type="static_site",
@@ -211,7 +208,7 @@ def build_project_from_args(args: argparse.Namespace) -> DeployProject:
             project_dir=args.project_dir_name or "checkout",
             home=args.home,
         )
-    if args.project_type in {"wsgi", "wsgi-site", "wsgi_site"}:
+    if args.project_type == "wsgi":
         return WsgiSiteProject(
             name=args.name,
             project_type="wsgi_site",
