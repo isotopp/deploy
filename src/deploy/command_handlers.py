@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from .apache import render_site_config
@@ -32,11 +33,25 @@ from .systemd import (
 )
 
 
+def _pause_before_second_restart(options: CommonOptions) -> None:
+    reporter = options.execution.reporter
+    if reporter is not None:
+        with reporter.step("pause before second restart"):
+            if options.execution.mode is RunMode.LIVE:
+                time.sleep(5)
+        return
+    if options.execution.mode is RunMode.LIVE:
+        time.sleep(5)
+
+
 def restart_httpd(options: CommonOptions) -> None:
     runner = CommandRunner(options.execution)
     # mod_md may provision a certificate on the first restart cycle and only
     # activate it on the second cycle, so this double restart is intentional.
+    # A short pause avoids a pathological immediate second graceful shutdown on
+    # some hosts.
     runner.run(["systemctl", "restart", "httpd.service"])
+    _pause_before_second_restart(options)
     runner.run(["systemctl", "restart", "httpd.service"])
     runner.run(["systemctl", "--no-pager", "status", "httpd.service"])
 
@@ -60,9 +75,13 @@ def restart_httpd_forced(options: CommonOptions) -> list[str]:
         ["systemctl", "restart", "httpd.service"],
         ["systemctl", "--no-pager", "status", "httpd.service"],
     ]
+    first = True
     for command in commands:
         result = runner.run(command, check=False)
         warnings.extend(_forced_command_warnings(result))
+        if first:
+            _pause_before_second_restart(options)
+            first = False
     return warnings
 
 

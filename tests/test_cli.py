@@ -561,6 +561,7 @@ def test_verbose_restart_reports_commands_and_summary(tmp_path, capsys) -> None:
     out = capsys.readouterr().out
     assert "verbose: start step write apache state" in out
     assert "verbose: start command systemctl restart httpd.service" in out
+    assert "verbose: start step pause before second restart" in out
     assert "verbose: done command systemctl --no-pager status httpd.service rc=0 in " in out
     assert "verbose: summary for restart" in out
 
