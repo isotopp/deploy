@@ -15,6 +15,7 @@ from .command_handlers import (
     update_project,
 )
 from .models import (
+    CustomProject,
     DeployProject,
     ProxyProject,
     RedirectSiteProject,
@@ -61,6 +62,14 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     show_parser = subparsers.add_parser("show", help="show a project or list projects")
+    show_parser.add_argument(
+        "--export",
+        type=Path,
+        help=(
+            "write the project JSON and optional .conf fragment "
+            "to the given filename in the current directory"
+        ),
+    )
     show_parser.add_argument("name", help="project name or 'projects'")
 
     delete_parser = subparsers.add_parser(
@@ -115,6 +124,13 @@ def build_parser() -> argparse.ArgumentParser:
     proxy_parser.add_argument("--upstream-host", default="127.0.0.1")
     proxy_parser.add_argument("--upstream-port", "--port", type=int, required=True)
     proxy_parser.add_argument("--upstream-scheme", choices=("http", "https"), default="http")
+
+    custom_parser = create_subparsers.add_parser(
+        "custom",
+        help="create a custom site from an Apache config fragment",
+    )
+    add_common_create_args(custom_parser)
+    custom_parser.add_argument("--config-file", type=Path, required=True)
 
     redirect_parser = create_subparsers.add_parser(
         "redirect",
@@ -186,10 +202,18 @@ def common_options(args: argparse.Namespace) -> CommonOptions:
         apache_sites_dir=args.apache_sites_dir,
         apache_tls_config=args.apache_tls_config,
         machine_fqdn=settings.paths.machine_fqdn,
+        config_file=getattr(args, "config_file", None),
     )
 
 
 def build_project_from_args(args: argparse.Namespace) -> DeployProject:
+    if args.project_type == "custom":
+        return CustomProject(
+            name=args.name,
+            project_type="custom",
+            hostname=args.hostname,
+            config=True,
+        )
     if args.project_type == "redirect":
         return RedirectSiteProject(
             name=args.name,
@@ -229,7 +253,13 @@ def build_project_from_args(args: argparse.Namespace) -> DeployProject:
     )
 
 
-def show_project(store: ProjectStore, name: str, *, json_output: bool) -> int:
+def show_project(
+    store: ProjectStore,
+    name: str,
+    *,
+    json_output: bool,
+    export_path: Path | None = None,
+) -> int:
     if name == "projects":
         names = store.list_names()
         if json_output:
@@ -240,15 +270,33 @@ def show_project(store: ProjectStore, name: str, *, json_output: bool) -> int:
         return 0
 
     project = store.load(name)
-    site_config = render_site_config(project)
+    fragment_content = store.load_fragment(name)
+    site_config = render_site_config(project, fragment_content=fragment_content)
+    if export_path is not None:
+        export_path.write_text(dump_json(project.to_record()) + "\n", encoding="utf-8")
+        if fragment_content is not None or isinstance(project, CustomProject):
+            Path(f"{export_path}.conf").write_text(fragment_content or "", encoding="utf-8")
+        return 0
     if json_output:
-        print(dump_json({"project": project, "apache_site": site_config}))
+        print(
+            dump_json(
+                {
+                    "project": project,
+                    "apache_site": site_config,
+                    "fragment": fragment_content,
+                }
+            )
+        )
         return 0
 
     print(f"project: {project.name}")
     print(f"type: {project.project_type}")
     print(f"hostname: {project.hostname}")
     print()
+    if fragment_content is not None:
+        print("fragment:")
+        print(fragment_content.rstrip())
+        print()
     print(site_config.content.rstrip())
     return 0
 
@@ -260,7 +308,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     store = ProjectStore(options.project_dir)
 
     if args.command == "show":
-        return show_project(store, args.name, json_output=options.json_output)
+        return show_project(
+            store,
+            args.name,
+            json_output=options.json_output,
+            export_path=args.export,
+        )
 
     if args.command == "create":
         return create_project(build_project_from_args(args), options)

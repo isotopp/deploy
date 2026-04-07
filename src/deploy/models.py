@@ -6,7 +6,7 @@ from typing import Any, Literal, cast
 
 from .errors import ProjectValidationError
 
-ProjectType = Literal["static_site", "redirect_site", "wsgi_site", "proxy"]
+ProjectType = Literal["static_site", "redirect_site", "wsgi_site", "proxy", "custom"]
 SourceType = Literal["git", "local_git"]
 
 
@@ -53,7 +53,14 @@ class ProxyProject(BaseProject):
     upstream_scheme: Literal["http", "https"] = "http"
 
 
-DeployProject = StaticSiteProject | RedirectSiteProject | WsgiSiteProject | ProxyProject
+@dataclass(frozen=True)
+class CustomProject(BaseProject):
+    config: bool = True
+
+
+DeployProject = (
+    StaticSiteProject | RedirectSiteProject | WsgiSiteProject | ProxyProject | CustomProject
+)
 
 
 def project_type_to_command_name(project_type: ProjectType) -> str:
@@ -62,7 +69,7 @@ def project_type_to_command_name(project_type: ProjectType) -> str:
 
 def command_name_to_project_type(name: str) -> ProjectType:
     normalized = name.replace("-", "_")
-    if normalized not in {"static_site", "redirect_site", "wsgi_site", "proxy"}:
+    if normalized not in {"static_site", "redirect_site", "wsgi_site", "proxy", "custom"}:
         raise ProjectValidationError(f"unsupported project type: {name}")
     return normalized  # type: ignore[return-value]
 
@@ -150,6 +157,17 @@ def project_from_record(record: dict[str, Any], *, name: str | None = None) -> D
             username=_require_str(record, "username"),
             project_dir=_project_dir_default(project_name, record),
             home=_optional_str(record, "home"),
+        )
+
+    if project_type == "custom":
+        config = record.get("config")
+        if config is not True:
+            raise ProjectValidationError("missing or invalid field: config")
+        return CustomProject(
+            name=project_name,
+            project_type=project_type,
+            hostname=hostname,
+            config=True,
         )
 
     upstream_port = record.get("upstream_port", record.get("port"))

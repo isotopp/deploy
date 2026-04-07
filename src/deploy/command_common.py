@@ -16,6 +16,7 @@ class CommonOptions:
     apache_sites_dir: Path
     apache_tls_config: Path
     machine_fqdn: str
+    config_file: Path | None = None
 
 
 def default_home(username: str) -> str:

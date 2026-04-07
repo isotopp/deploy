@@ -16,6 +16,39 @@ def test_show_projects_as_json(tmp_path, capsys) -> None:
     assert '"projects"' in capsys.readouterr().out
 
 
+def test_show_export_writes_json_and_fragment(tmp_path, monkeypatch) -> None:
+    project_dir = tmp_path / "projects"
+    project_dir.mkdir()
+    (project_dir / "kris").write_text(
+        '{"type":"custom","project":"kris","hostname":"kris.home.koehntopp.de","config":true}\n',
+        encoding="utf-8",
+    )
+    (project_dir / "kris.conf").write_text(
+        "<VirtualHost *:443>\n    ServerName kris.home.koehntopp.de\n</VirtualHost>\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = main(
+        [
+            "--project-dir",
+            str(project_dir),
+            "show",
+            "--export",
+            "kris-export",
+            "kris",
+        ]
+    )
+
+    assert exit_code == 0
+    assert (tmp_path / "kris-export").exists()
+    assert (tmp_path / "kris-export.conf").exists()
+    assert '"type": "custom"' in (tmp_path / "kris-export").read_text(encoding="utf-8")
+    assert "ServerName kris.home.koehntopp.de" in (
+        tmp_path / "kris-export.conf"
+    ).read_text(encoding="utf-8")
+
+
 def test_create_proxy_preview_as_json(capsys) -> None:
     exit_code = main(
         [
@@ -154,6 +187,55 @@ def test_create_redirect_only_writes_config_and_restarts(tmp_path, capsys) -> No
     assert "Use RedirectVHost docs.home.koehntopp.de server.home.koehntopp.de" in (
         staged_site.read_text(encoding="utf-8")
     )
+
+
+def test_create_custom_imports_fragment_file(tmp_path, capsys) -> None:
+    configtest_prefix = tmp_path / "staging"
+    project_dir = tmp_path / "projects"
+    apache_sites_dir = tmp_path / "sites"
+    apache_tls_config = tmp_path / "conf.d" / "ssldomain.conf"
+    config_file = tmp_path / "kris.conf"
+    config_file.write_text(
+        "<VirtualHost *:443>\n    ServerName kris.home.koehntopp.de\n</VirtualHost>\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "--json",
+            "--configtest",
+            str(configtest_prefix),
+            "--project-dir",
+            str(project_dir),
+            "--apache-sites-dir",
+            str(apache_sites_dir),
+            "--apache-tls-config",
+            str(apache_tls_config),
+            "create",
+            "custom",
+            "kris",
+            "--hostname",
+            "kris.home.koehntopp.de",
+            "--config-file",
+            str(config_file),
+        ]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert '"project_type": "custom"' in out
+    staged_fragment = configtest_prefix / project_dir.relative_to(project_dir.anchor) / "kris.conf"
+    staged_site = (
+        configtest_prefix
+        / apache_sites_dir.relative_to(apache_sites_dir.anchor)
+        / "kris.home.koehntopp.de.conf"
+    )
+    assert staged_fragment.read_text(encoding="utf-8") == config_file.read_text(encoding="utf-8")
+    assert "ServerName kris.home.koehntopp.de" in staged_site.read_text(encoding="utf-8")
+    cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
+    assert "useradd " not in cmdlog
+    assert "git clone " not in cmdlog
+
 
 
 def test_configtest_writes_staged_files_and_command_log(tmp_path, capsys) -> None:
@@ -375,6 +457,42 @@ def test_delete_in_configtest_logs_restart_and_stages_tls(tmp_path, capsys) -> N
     staged_tls = configtest_prefix / apache_tls_config.relative_to(apache_tls_config.anchor)
     assert staged_tls.exists()
     assert "grafana.home.koehntopp.de" not in staged_tls.read_text(encoding="utf-8")
+
+
+def test_delete_custom_removes_fragment_file(tmp_path, capsys) -> None:
+    project_dir = tmp_path / "projects"
+    project_dir.mkdir()
+    (project_dir / "kris").write_text(
+        '{"type":"custom","project":"kris","hostname":"kris.home.koehntopp.de","config":true}\n',
+        encoding="utf-8",
+    )
+    (project_dir / "kris.conf").write_text(
+        "<VirtualHost *:443>\n    ServerName kris.home.koehntopp.de\n</VirtualHost>\n",
+        encoding="utf-8",
+    )
+    configtest_prefix = tmp_path / "staging"
+    apache_sites_dir = tmp_path / "sites"
+    apache_tls_config = tmp_path / "conf.d" / "ssldomain.conf"
+
+    exit_code = main(
+        [
+            "--json",
+            "--configtest",
+            str(configtest_prefix),
+            "--project-dir",
+            str(project_dir),
+            "--apache-sites-dir",
+            str(apache_sites_dir),
+            "--apache-tls-config",
+            str(apache_tls_config),
+            "delete",
+            "kris",
+        ]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert '"fragment_file"' in out
 
 
 def test_delete_source_backed_in_configtest_logs_backup_and_userdel(tmp_path, capsys) -> None:

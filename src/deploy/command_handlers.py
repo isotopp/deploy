@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from .apache import render_site_config
 from .apache_bootstrap import run_bootstrap
 from .apache_state import write_apache_state, write_tls_state_excluding
 from .command_common import CommonOptions, prepare_project_for_create
 from .errors import ProjectNotFoundError
 from .gitops import build_update_plan
-from .models import DeployProject, StaticSiteProject, WsgiSiteProject
+from .models import CustomProject, DeployProject, StaticSiteProject, WsgiSiteProject
 from .output import dump_json
 from .project_store import ProjectStore
 from .runner import CommandResult, CommandRunner
@@ -70,9 +72,15 @@ def create_project(project: DeployProject, options: CommonOptions) -> int:
     ensure_fresh_source_backed_target(project, options)
     provision_source_backed_project(project, options)
     store = ProjectStore(options.project_dir, context=options.execution)
+    fragment_file: Path | None = None
+    if isinstance(project, CustomProject) and options.config_file is not None:
+        fragment_file = store.save_fragment(
+            project.name,
+            options.config_file.read_text(encoding="utf-8"),
+        )
     written, warnings = write_apache_state(project, options=options, store=store)
     restart_httpd(options)
-    site_config = render_site_config(project)
+    site_config = render_site_config(project, fragment_content=store.load_fragment(project.name))
     if options.json_output:
         print(
             dump_json(
@@ -81,6 +89,7 @@ def create_project(project: DeployProject, options: CommonOptions) -> int:
                     "mode": options.execution.mode.value,
                     "project": project,
                     "written": written,
+                    "fragment_file": fragment_file,
                     "apache_site": site_config,
                     "warnings": warnings,
                     "command_log": options.execution.command_log_path(),
@@ -92,6 +101,8 @@ def create_project(project: DeployProject, options: CommonOptions) -> int:
     print(f"mode: {options.execution.mode.value}")
     for label, path in written.items():
         print(f"{label}: {path}")
+    if fragment_file is not None:
+        print(f"fragment_file: {fragment_file}")
     for warning in warnings:
         print(f"warning: {warning}")
     if options.execution.command_log_path() is not None:
@@ -201,6 +212,7 @@ def delete_project(name: str, options: CommonOptions, *, force: bool = False) ->
                         "project": None,
                         "deleted": {
                             "project_file": None,
+                            "fragment_file": None,
                             "apache_site_file": None,
                             "backup_archive": None,
                         },
@@ -220,6 +232,7 @@ def delete_project(name: str, options: CommonOptions, *, force: bool = False) ->
             print(f"command_log: {options.execution.command_log_path()}")
         return 0
     deleted_project_file = store.delete(name)
+    deleted_fragment_file = store.delete_fragment(name)
     deleted_site_file = options.execution.stage_path(
         options.apache_sites_dir / f"{project.hostname}.conf"
     )
@@ -244,6 +257,7 @@ def delete_project(name: str, options: CommonOptions, *, force: bool = False) ->
                     "project": project,
                     "deleted": {
                         "project_file": deleted_project_file,
+                        "fragment_file": deleted_fragment_file,
                         "apache_site_file": deleted_site_file,
                         "backup_archive": backup_archive,
                     },
@@ -258,6 +272,7 @@ def delete_project(name: str, options: CommonOptions, *, force: bool = False) ->
     print(f"mode: {options.execution.mode.value}")
     print(f"force: {force}")
     print(f"deleted project_file: {deleted_project_file}")
+    print(f"deleted fragment_file: {deleted_fragment_file}")
     print(f"deleted apache_site_file: {deleted_site_file}")
     if backup_archive is not None:
         print(f"backup_archive: {backup_archive}")

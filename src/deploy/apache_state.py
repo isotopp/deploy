@@ -16,7 +16,7 @@ def write_apache_state(
     store: ProjectStore,
 ) -> tuple[dict[str, Path], list[str]]:
     file_system = FileSystem(options.execution)
-    site_config = render_site_config(project)
+    site_config = render_site_config(project, fragment_content=store.load_fragment(project.name))
     project_file = store.save(project)
     apache_site_file = file_system.write_text(
         options.apache_sites_dir / site_config.filename,

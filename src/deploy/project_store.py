@@ -14,6 +14,13 @@ class ProjectStore:
     project_dir: Path
     context: ExecutionContext | None = None
 
+    @staticmethod
+    def _is_project_file(path: Path) -> bool:
+        return path.is_file() and not path.name.endswith(".conf")
+
+    def fragment_path(self, name: str) -> Path:
+        return self._target_dir() / f"{name}.conf"
+
     def _target_dir(self) -> Path:
         if self.context is not None and self.context.mode is RunMode.CONFIGTEST:
             return self.context.stage_path(self.project_dir)
@@ -24,13 +31,15 @@ class ProjectStore:
             names = set[str]()
             for directory in (self.project_dir, self._target_dir()):
                 if directory.exists():
-                    names.update(path.name for path in directory.iterdir() if path.is_file())
+                    names.update(
+                        path.name for path in directory.iterdir() if self._is_project_file(path)
+                    )
             return sorted(names)
 
         target_dir = self._target_dir()
         if not target_dir.exists():
             return []
-        return sorted(path.name for path in target_dir.iterdir() if path.is_file())
+        return sorted(path.name for path in target_dir.iterdir() if self._is_project_file(path))
 
     def load(self, name: str) -> DeployProject:
         path = project_path(self._target_dir(), name)
@@ -58,6 +67,33 @@ class ProjectStore:
 
     def delete(self, name: str) -> Path:
         target = project_path(self._target_dir(), name)
+        if self.context is not None and self.context.mode is RunMode.DRY_RUN:
+            return target
+        target.unlink(missing_ok=True)
+        return target
+
+    def load_fragment(self, name: str) -> str | None:
+        path = self.fragment_path(name)
+        if (
+            self.context is not None
+            and self.context.mode is RunMode.CONFIGTEST
+            and not path.exists()
+        ):
+            path = self.project_dir / f"{name}.conf"
+        if not path.exists():
+            return None
+        return path.read_text(encoding="utf-8")
+
+    def save_fragment(self, name: str, content: str) -> Path:
+        target = self.fragment_path(name)
+        if self.context is not None and self.context.mode is RunMode.DRY_RUN:
+            return target
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        return target
+
+    def delete_fragment(self, name: str) -> Path:
+        target = self.fragment_path(name)
         if self.context is not None and self.context.mode is RunMode.DRY_RUN:
             return target
         target.unlink(missing_ok=True)

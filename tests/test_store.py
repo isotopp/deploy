@@ -27,6 +27,23 @@ def test_lists_and_loads_projects(tmp_path) -> None:
     assert project.hostname == "grafana.home.koehntopp.de"
 
 
+def test_list_names_ignores_fragment_files(tmp_path) -> None:
+    project_dir = tmp_path / "projects"
+    project_dir.mkdir()
+    (project_dir / "kris").write_text(
+        '{"type":"custom","project":"kris","hostname":"kris.home.koehntopp.de","config":true}\n',
+        encoding="utf-8",
+    )
+    (project_dir / "kris.conf").write_text(
+        "<VirtualHost *:443>\n</VirtualHost>\n",
+        encoding="utf-8",
+    )
+
+    store = ProjectStore(project_dir)
+
+    assert store.list_names() == ["kris"]
+
+
 def test_configtest_store_lists_and_loads_staged_projects(tmp_path) -> None:
     project_dir = tmp_path / "projects"
     store = ProjectStore(
