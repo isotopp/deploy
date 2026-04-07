@@ -43,6 +43,7 @@ def test_live_purge_refuses_unmanaged_user(monkeypatch, tmp_path) -> None:
     )
     options = CommonOptions(
         json_output=False,
+        verbose=False,
         execution=ExecutionContext(mode=RunMode.LIVE),
         project_dir=tmp_path / "projects",
         apache_sites_dir=tmp_path / "sites",
@@ -83,6 +84,7 @@ def test_update_safe_accepts_adopted_checkout_matching_origin(monkeypatch, tmp_p
     )
     options = CommonOptions(
         json_output=False,
+        verbose=False,
         execution=ExecutionContext(mode=RunMode.LIVE),
         project_dir=tmp_path / "projects",
         apache_sites_dir=tmp_path / "sites",

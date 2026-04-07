@@ -71,6 +71,28 @@ def test_create_proxy_preview_as_json(capsys) -> None:
     assert '"project_type": "proxy"' in out
 
 
+def test_verbose_create_reports_steps_and_summary(capsys) -> None:
+    exit_code = main(
+        [
+            "--verbose",
+            "--dry-run",
+            "create",
+            "proxy",
+            "immich",
+            "--hostname",
+            "immich.home.koehntopp.de",
+            "--upstream-port",
+            "2283",
+        ]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "verbose: start step prepare project for create" in out
+    assert "verbose: done step restart httpd in " in out
+    assert "verbose: summary for create" in out
+
+
 def test_create_wsgi_subcommand_parses_type_specific_options(capsys) -> None:
     exit_code = main(
         [
@@ -507,6 +529,41 @@ def test_restart_in_configtest_regenerates_tls_and_logs_commands(tmp_path, capsy
     assert '"phase": "restart"' in out
     staged_tls = configtest_prefix / apache_tls_config.relative_to(apache_tls_config.anchor)
     assert "plik.home.koehntopp.de" in staged_tls.read_text(encoding="utf-8")
+
+
+def test_verbose_restart_reports_commands_and_summary(tmp_path, capsys) -> None:
+    project_dir = tmp_path / "projects"
+    project_dir.mkdir()
+    (project_dir / "plik").write_text(
+        '{"type":"proxy","project":"plik","hostname":"plik.home.koehntopp.de","port":8084}\n',
+        encoding="utf-8",
+    )
+    configtest_prefix = tmp_path / "staging"
+    apache_sites_dir = tmp_path / "sites"
+    apache_tls_config = tmp_path / "conf.d" / "ssldomain.conf"
+
+    exit_code = main(
+        [
+            "--verbose",
+            "--configtest",
+            str(configtest_prefix),
+            "--project-dir",
+            str(project_dir),
+            "--apache-sites-dir",
+            str(apache_sites_dir),
+            "--apache-tls-config",
+            str(apache_tls_config),
+            "restart",
+            "plik",
+        ]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "verbose: start step write apache state" in out
+    assert "verbose: start command systemctl stop httpd.service" in out
+    assert "verbose: done command systemctl --no-pager status httpd.service rc=0 in " in out
+    assert "verbose: summary for restart" in out
 
 
 def test_start_in_configtest_regenerates_tls_and_logs_commands(tmp_path, capsys) -> None:

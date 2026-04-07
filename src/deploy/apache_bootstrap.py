@@ -440,20 +440,24 @@ class BootstrapResult:
 
 def bootstrap_added_files(settings: DeploySettings, fs: FileSystem) -> dict[str, Path]:
     paths = settings.paths
-    fs.mkdir(paths.apache_sites_dir)
-    existing_hostnames = site_hostnames_from_dir(paths.apache_sites_dir)
-    written = {
-        "macros_conf": fs.write_text(paths.apache_macros_config, macros_conf_content()),
-        "ssldomain_conf": fs.write_text(
-            paths.apache_tls_config,
-            render_ssldomain_config(existing_hostnames, fqdn=paths.machine_fqdn),
-        ),
-    }
-    httpd_text = paths.httpd_conf.read_text(encoding="utf-8")
-    written["httpd_conf"] = fs.write_text(
-        paths.httpd_conf,
-        ensure_include(httpd_text, paths.apache_sites_include),
-    )
+    reporter = fs.context.reporter
+    with reporter.step("ensure apache site directory") if reporter else _noop_context():
+        fs.mkdir(paths.apache_sites_dir)
+    with reporter.step("discover existing site hostnames") if reporter else _noop_context():
+        existing_hostnames = site_hostnames_from_dir(paths.apache_sites_dir)
+    with reporter.step("write bootstrap added files") if reporter else _noop_context():
+        written = {
+            "macros_conf": fs.write_text(paths.apache_macros_config, macros_conf_content()),
+            "ssldomain_conf": fs.write_text(
+                paths.apache_tls_config,
+                render_ssldomain_config(existing_hostnames, fqdn=paths.machine_fqdn),
+            ),
+        }
+        httpd_text = paths.httpd_conf.read_text(encoding="utf-8")
+        written["httpd_conf"] = fs.write_text(
+            paths.httpd_conf,
+            ensure_include(httpd_text, paths.apache_sites_include),
+        )
     return written
 
 
@@ -463,9 +467,11 @@ def bootstrap_ip_only(
     external_ip: str,
     additional_ips: list[str],
 ) -> dict[str, Path]:
-    httpd_text = settings.paths.httpd_conf.read_text(encoding="utf-8")
-    updated = update_status_ip_restrictions(httpd_text, external_ip, additional_ips)
-    return {"httpd_conf": fs.write_text(settings.paths.httpd_conf, updated)}
+    reporter = fs.context.reporter
+    with reporter.step("update status ip restrictions") if reporter else _noop_context():
+        httpd_text = settings.paths.httpd_conf.read_text(encoding="utf-8")
+        updated = update_status_ip_restrictions(httpd_text, external_ip, additional_ips)
+        return {"httpd_conf": fs.write_text(settings.paths.httpd_conf, updated)}
 
 
 def render_httpd_conf(external_ip: str, additional_ips: list[str]) -> str:
@@ -489,32 +495,37 @@ def bootstrap_all(
     httpd_root = paths.httpd_conf.parent.parent
     httpd_backup = httpd_root.with_name("httpd.bak")
 
-    runner.run(["rm", "-rf", str(httpd_backup)])
-    runner.run(["mv", str(httpd_root), str(httpd_backup)])
-    runner.run(["cp", "-a", str(httpd_backup), str(httpd_root)])
+    reporter = fs.context.reporter
+    with reporter.step("rotate apache tree") if reporter else _noop_context():
+        runner.run(["rm", "-rf", str(httpd_backup)])
+        runner.run(["mv", str(httpd_root), str(httpd_backup)])
+        runner.run(["cp", "-a", str(httpd_backup), str(httpd_root)])
 
-    fs.mkdir(paths.apache_sites_dir)
+    with reporter.step("ensure apache site directory") if reporter else _noop_context():
+        fs.mkdir(paths.apache_sites_dir)
     hostname_source_root = httpd_backup
     if fs.context.mode is not RunMode.LIVE:
         # In configtest/dry-run the rotation is logged, not executed, so the
         # current httpd tree remains the only readable source of live state.
         hostname_source_root = httpd_root
-    existing_hostnames = site_hostnames_from_dir(hostname_source_root / "conf.sites.d")
-    written: dict[str, Path] = {}
-    written["httpd_conf"] = fs.write_text(
-        paths.httpd_conf,
-        render_httpd_conf(external_ip, additional_ips),
-    )
-    written["ssl_conf"] = fs.write_text(paths.ssl_conf, SSL_CONF_CONTENT)
-    written["brotli_module_conf"] = fs.write_text(paths.brotli_module_conf, BROTLI_CONF_CONTENT)
-    written["dav_module_conf"] = fs.write_text(paths.dav_module_conf, DAV_CONF_CONTENT)
-    written["cgi_module_conf"] = fs.write_text(paths.cgi_module_conf, CGI_CONF_CONTENT)
-    written["httpd_logrotate"] = fs.write_text(paths.httpd_logrotate, HTTPD_LOGROTATE_CONTENT)
-    written["macros_conf"] = fs.write_text(paths.apache_macros_config, macros_conf_content())
-    written["ssldomain_conf"] = fs.write_text(
-        paths.apache_tls_config,
-        render_ssldomain_config(existing_hostnames, fqdn=paths.machine_fqdn),
-    )
+    with reporter.step("discover existing site hostnames") if reporter else _noop_context():
+        existing_hostnames = site_hostnames_from_dir(hostname_source_root / "conf.sites.d")
+    with reporter.step("write bootstrap all files") if reporter else _noop_context():
+        written: dict[str, Path] = {}
+        written["httpd_conf"] = fs.write_text(
+            paths.httpd_conf,
+            render_httpd_conf(external_ip, additional_ips),
+        )
+        written["ssl_conf"] = fs.write_text(paths.ssl_conf, SSL_CONF_CONTENT)
+        written["brotli_module_conf"] = fs.write_text(paths.brotli_module_conf, BROTLI_CONF_CONTENT)
+        written["dav_module_conf"] = fs.write_text(paths.dav_module_conf, DAV_CONF_CONTENT)
+        written["cgi_module_conf"] = fs.write_text(paths.cgi_module_conf, CGI_CONF_CONTENT)
+        written["httpd_logrotate"] = fs.write_text(paths.httpd_logrotate, HTTPD_LOGROTATE_CONTENT)
+        written["macros_conf"] = fs.write_text(paths.apache_macros_config, macros_conf_content())
+        written["ssldomain_conf"] = fs.write_text(
+            paths.apache_tls_config,
+            render_ssldomain_config(existing_hostnames, fqdn=paths.machine_fqdn),
+        )
     return written
 
 
@@ -545,3 +556,11 @@ def run_bootstrap(
         written = bootstrap_added_files(settings, fs)
 
     return BootstrapResult(written=written, external_ip=discovered_ip)
+
+
+class _noop_context:
+    def __enter__(self):
+        return None
+
+    def __exit__(self, exc_type, exc, tb):
+        return False

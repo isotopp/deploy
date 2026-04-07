@@ -11,6 +11,7 @@ from .runtime import ExecutionContext
 @dataclass(frozen=True)
 class CommonOptions:
     json_output: bool
+    verbose: bool
     execution: ExecutionContext
     project_dir: Path
     apache_sites_dir: Path

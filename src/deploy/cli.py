@@ -26,7 +26,7 @@ from .models import (
 )
 from .output import dump_json
 from .project_store import ProjectStore
-from .runtime import ExecutionContext, RunMode
+from .runtime import ExecutionContext, RunMode, VerboseReporter
 from .settings import DeploySettings
 
 
@@ -38,6 +38,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="json_output",
         help="emit JSON output",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="print top-level steps, command timing, and a final timing summary",
     )
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument(
@@ -254,14 +259,22 @@ def add_common_create_args(parser: argparse.ArgumentParser) -> None:
 
 def common_options(args: argparse.Namespace) -> CommonOptions:
     settings = DeploySettings()
+    reporter = None
+    if args.verbose and not args.json_output:
+        reporter = VerboseReporter(phase=args.command)
     if args.configtest is not None:
-        execution = ExecutionContext(mode=RunMode.CONFIGTEST, configtest_prefix=args.configtest)
+        execution = ExecutionContext(
+            mode=RunMode.CONFIGTEST,
+            configtest_prefix=args.configtest,
+            reporter=reporter,
+        )
     elif args.dry_run:
-        execution = ExecutionContext(mode=RunMode.DRY_RUN)
+        execution = ExecutionContext(mode=RunMode.DRY_RUN, reporter=reporter)
     else:
-        execution = ExecutionContext(mode=RunMode.LIVE)
+        execution = ExecutionContext(mode=RunMode.LIVE, reporter=reporter)
     return CommonOptions(
         json_output=args.json_output,
+        verbose=args.verbose,
         execution=execution,
         project_dir=args.project_dir,
         apache_sites_dir=args.apache_sites_dir,
@@ -344,9 +357,11 @@ def show_project(
     *,
     json_output: bool,
     export_path: Path | None = None,
+    reporter: VerboseReporter | None = None,
 ) -> int:
     if name == "projects":
-        names = store.list_names()
+        with reporter.step("list projects") if reporter else _noop_context():
+            names = store.list_names()
         if json_output:
             print(dump_json({"projects": names}))
         else:
@@ -354,13 +369,17 @@ def show_project(
                 print(f"- {project_name}")
         return 0
 
-    project = store.load(name)
-    fragment_content = store.load_fragment(name)
-    site_config = render_site_config(project, fragment_content=fragment_content)
+    with reporter.step("load project") if reporter else _noop_context():
+        project = store.load(name)
+    with reporter.step("load fragment") if reporter else _noop_context():
+        fragment_content = store.load_fragment(name)
+    with reporter.step("render apache site") if reporter else _noop_context():
+        site_config = render_site_config(project, fragment_content=fragment_content)
     if export_path is not None:
-        export_path.write_text(dump_json(project.to_record()) + "\n", encoding="utf-8")
-        if fragment_content is not None or isinstance(project, CustomProject):
-            Path(f"{export_path}.conf").write_text(fragment_content or "", encoding="utf-8")
+        with reporter.step("export project") if reporter else _noop_context():
+            export_path.write_text(dump_json(project.to_record()) + "\n", encoding="utf-8")
+            if fragment_content is not None or isinstance(project, CustomProject):
+                Path(f"{export_path}.conf").write_text(fragment_content or "", encoding="utf-8")
         return 0
     if json_output:
         print(
@@ -386,6 +405,14 @@ def show_project(
     return 0
 
 
+class _noop_context:
+    def __enter__(self):
+        return None
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -393,50 +420,81 @@ def main(argv: Sequence[str] | None = None) -> int:
     store = ProjectStore(options.project_dir)
 
     if args.command == "show":
-        return show_project(
+        result = show_project(
             store,
             args.name,
             json_output=options.json_output,
             export_path=args.export,
+            reporter=options.execution.reporter,
         )
+        if options.execution.reporter is not None:
+            options.execution.reporter.print_summary()
+        return result
 
     if args.command == "create":
-        return create_project(build_project_from_args(args), options)
+        result = create_project(build_project_from_args(args), options)
+        if options.execution.reporter is not None:
+            options.execution.reporter.print_summary()
+        return result
 
     if args.command == "adopt":
-        return adopt_project(build_project_from_args(args), options)
+        result = adopt_project(build_project_from_args(args), options)
+        if options.execution.reporter is not None:
+            options.execution.reporter.print_summary()
+        return result
 
     if args.command == "delete":
-        return delete_project(args.name, options, force=args.force)
+        result = delete_project(args.name, options, force=args.force)
+        if options.execution.reporter is not None:
+            options.execution.reporter.print_summary()
+        return result
 
     if args.command == "restart":
-        return restart_project(args.name, options)
+        result = restart_project(args.name, options)
+        if options.execution.reporter is not None:
+            options.execution.reporter.print_summary()
+        return result
 
     if args.command == "start":
         from .command_handlers import start_project
 
-        return start_project(args.name, options)
+        result = start_project(args.name, options)
+        if options.execution.reporter is not None:
+            options.execution.reporter.print_summary()
+        return result
 
     if args.command == "stop":
         from .command_handlers import stop_project
 
-        return stop_project(args.name, options)
+        result = stop_project(args.name, options)
+        if options.execution.reporter is not None:
+            options.execution.reporter.print_summary()
+        return result
 
     if args.command == "update":
-        return update_project(args.name, options)
+        result = update_project(args.name, options)
+        if options.execution.reporter is not None:
+            options.execution.reporter.print_summary()
+        return result
 
     if args.command == "logs":
         from .command_handlers import logs_project
 
-        return logs_project(args.name, options)
+        result = logs_project(args.name, options)
+        if options.execution.reporter is not None:
+            options.execution.reporter.print_summary()
+        return result
 
     if args.command == "bootstrap-apache":
-        return bootstrap_apache(
+        result = bootstrap_apache(
             args.bootstrap_all,
             args.bootstrap_ip_only,
             options,
             additional_ips=args.additional_ips,
         )
+        if options.execution.reporter is not None:
+            options.execution.reporter.print_summary()
+        return result
 
     parser.error(f"unsupported command: {args.command}")
     return 2

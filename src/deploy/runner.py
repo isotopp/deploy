@@ -47,6 +47,11 @@ class CommandRunner:
                 )
                 effective_env = None
             effective_command = ("sudo", "-u", username, "--", *inline_env_prefix, *inner_command)
+        reporter = self.context.reporter
+        started_at: float | None = None
+        command_text = shell_join(effective_command)
+        if reporter is not None:
+            started_at = reporter.command_started(command_text)
         if self.context.mode is RunMode.LIVE:
             subprocess_env = None
             if effective_env is not None:
@@ -59,6 +64,8 @@ class CommandRunner:
                 env=subprocess_env,
             )
             result = CommandResult(argv=effective_command, returncode=completed.returncode)
+            if reporter is not None and started_at is not None:
+                reporter.command_finished(command_text, started_at, completed.returncode)
             if check and completed.returncode != 0:
                 joined_command = shell_join(effective_command)
                 raise CommandExecutionError(
@@ -81,6 +88,10 @@ class CommandRunner:
                     )
                     handle.write(f"env {logged_env_prefix} ")
                 handle.write(f"{shell_join(effective_command)}\n")
+            if reporter is not None and started_at is not None:
+                reporter.command_finished(command_text, started_at, 0)
             return CommandResult(argv=effective_command, returncode=0)
 
+        if reporter is not None and started_at is not None:
+            reporter.command_finished(command_text, started_at, 0)
         return CommandResult(argv=effective_command, returncode=0)

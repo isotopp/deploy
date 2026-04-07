@@ -152,23 +152,33 @@ def _delete_go_site_service(
 
 
 def create_project(project: DeployProject, options: CommonOptions) -> int:
-    project = prepare_project_for_create(project)
-    ensure_fresh_source_backed_target(project, options)
-    provision_source_backed_project(project, options)
+    reporter = options.execution.reporter
+    with reporter.step("prepare project for create") if reporter else _noop_context():
+        project = prepare_project_for_create(project)
+    with reporter.step("preflight create") if reporter else _noop_context():
+        ensure_fresh_source_backed_target(project, options)
+    with reporter.step("provision source-backed project") if reporter else _noop_context():
+        provision_source_backed_project(project, options)
     store = ProjectStore(options.project_dir, context=options.execution)
     fragment_file: Path | None = None
     systemd_unit_file: Path | None = None
     if isinstance(project, CustomProject) and options.config_file is not None:
-        fragment_file = store.save_fragment(
-            project.name,
-            options.config_file.read_text(encoding="utf-8"),
-        )
+        with reporter.step("store custom fragment") if reporter else _noop_context():
+            fragment_file = store.save_fragment(
+                project.name,
+                options.config_file.read_text(encoding="utf-8"),
+            )
     if isinstance(project, GoSiteProject):
-        _build_go_site_binary(project, options)
-        systemd_unit_file = _write_go_site_systemd_unit(project, options)
-        _enable_and_start_go_site_service(project, options)
-    written, warnings = write_apache_state(project, options=options, store=store)
-    restart_httpd(options)
+        with reporter.step("build go binary") if reporter else _noop_context():
+            _build_go_site_binary(project, options)
+        with reporter.step("write go systemd unit") if reporter else _noop_context():
+            systemd_unit_file = _write_go_site_systemd_unit(project, options)
+        with reporter.step("enable and start go service") if reporter else _noop_context():
+            _enable_and_start_go_site_service(project, options)
+    with reporter.step("write apache state") if reporter else _noop_context():
+        written, warnings = write_apache_state(project, options=options, store=store)
+    with reporter.step("restart httpd") if reporter else _noop_context():
+        restart_httpd(options)
     site_config = render_site_config(project, fragment_content=store.load_fragment(project.name))
     if options.json_output:
         print(
@@ -203,11 +213,16 @@ def create_project(project: DeployProject, options: CommonOptions) -> int:
 
 
 def adopt_project(project: DeployProject, options: CommonOptions) -> int:
-    project = prepare_project_for_adopt(project)
-    ensure_adoptable_source_backed_target(project, options)
+    reporter = options.execution.reporter
+    with reporter.step("prepare project for adopt") if reporter else _noop_context():
+        project = prepare_project_for_adopt(project)
+    with reporter.step("preflight adopt") if reporter else _noop_context():
+        ensure_adoptable_source_backed_target(project, options)
     store = ProjectStore(options.project_dir, context=options.execution)
-    written, warnings = write_apache_state(project, options=options, store=store)
-    restart_httpd(options)
+    with reporter.step("write apache state") if reporter else _noop_context():
+        written, warnings = write_apache_state(project, options=options, store=store)
+    with reporter.step("restart httpd") if reporter else _noop_context():
+        restart_httpd(options)
     site_config = render_site_config(project, fragment_content=store.load_fragment(project.name))
     if options.json_output:
         print(
@@ -236,13 +251,18 @@ def adopt_project(project: DeployProject, options: CommonOptions) -> int:
 
 
 def restart_project(name: str, options: CommonOptions) -> int:
+    reporter = options.execution.reporter
     store = ProjectStore(options.project_dir, context=options.execution)
-    project = store.load(name)
-    written, warnings = write_apache_state(project, options=options, store=store)
+    with reporter.step("load project") if reporter else _noop_context():
+        project = store.load(name)
+    with reporter.step("write apache state") if reporter else _noop_context():
+        written, warnings = write_apache_state(project, options=options, store=store)
     if isinstance(project, GoSiteProject):
-        runner = CommandRunner(options.execution)
-        runner.run(["systemctl", "restart", go_site_service_unit_name(project)])
-    restart_httpd(options)
+        with reporter.step("restart go service") if reporter else _noop_context():
+            runner = CommandRunner(options.execution)
+            runner.run(["systemctl", "restart", go_site_service_unit_name(project)])
+    with reporter.step("restart httpd") if reporter else _noop_context():
+        restart_httpd(options)
     if options.json_output:
         print(
             dump_json(
@@ -269,13 +289,18 @@ def restart_project(name: str, options: CommonOptions) -> int:
 
 
 def start_project(name: str, options: CommonOptions) -> int:
+    reporter = options.execution.reporter
     store = ProjectStore(options.project_dir, context=options.execution)
-    project = store.load(name)
-    written, warnings = write_apache_state(project, options=options, store=store)
+    with reporter.step("load project") if reporter else _noop_context():
+        project = store.load(name)
+    with reporter.step("write apache state") if reporter else _noop_context():
+        written, warnings = write_apache_state(project, options=options, store=store)
     if isinstance(project, GoSiteProject):
-        runner = CommandRunner(options.execution)
-        runner.run(["systemctl", "start", go_site_service_unit_name(project)])
-    start_httpd(options)
+        with reporter.step("start go service") if reporter else _noop_context():
+            runner = CommandRunner(options.execution)
+            runner.run(["systemctl", "start", go_site_service_unit_name(project)])
+    with reporter.step("start httpd") if reporter else _noop_context():
+        start_httpd(options)
     if options.json_output:
         print(
             dump_json(
@@ -302,12 +327,16 @@ def start_project(name: str, options: CommonOptions) -> int:
 
 
 def stop_project(name: str, options: CommonOptions) -> int:
+    reporter = options.execution.reporter
     store = ProjectStore(options.project_dir, context=options.execution)
-    project = store.load(name)
-    stop_httpd(options)
+    with reporter.step("load project") if reporter else _noop_context():
+        project = store.load(name)
+    with reporter.step("stop httpd") if reporter else _noop_context():
+        stop_httpd(options)
     if isinstance(project, GoSiteProject):
-        runner = CommandRunner(options.execution)
-        runner.run(["systemctl", "stop", go_site_service_unit_name(project)])
+        with reporter.step("stop go service") if reporter else _noop_context():
+            runner = CommandRunner(options.execution)
+            runner.run(["systemctl", "stop", go_site_service_unit_name(project)])
     if options.json_output:
         print(
             dump_json(
@@ -329,9 +358,11 @@ def stop_project(name: str, options: CommonOptions) -> int:
 
 
 def delete_project(name: str, options: CommonOptions, *, force: bool = False) -> int:
+    reporter = options.execution.reporter
     store = ProjectStore(options.project_dir, context=options.execution)
     try:
-        project = store.load(name)
+        with reporter.step("load project") if reporter else _noop_context():
+            project = store.load(name)
     except ProjectNotFoundError:
         if not force:
             raise
@@ -366,26 +397,38 @@ def delete_project(name: str, options: CommonOptions, *, force: bool = False) ->
         if options.execution.command_log_path() is not None:
             print(f"command_log: {options.execution.command_log_path()}")
         return 0
-    deleted_project_file = store.delete(name)
-    deleted_fragment_file = store.delete_fragment(name)
+    with reporter.step("delete project metadata") if reporter else _noop_context():
+        deleted_project_file = store.delete(name)
+        deleted_fragment_file = store.delete_fragment(name)
     deleted_systemd_unit_file: Path | None = None
     deleted_site_file = options.execution.stage_path(
         options.apache_sites_dir / f"{project.hostname}.conf"
     )
-    if options.execution.mode is not RunMode.DRY_RUN:
-        deleted_site_file.unlink(missing_ok=True)
-    tls_file, warnings = write_tls_state_excluding(options, store, excluded_names={name})
+    with reporter.step("delete apache site file") if reporter else _noop_context():
+        if options.execution.mode is not RunMode.DRY_RUN:
+            deleted_site_file.unlink(missing_ok=True)
+    with reporter.step("rewrite tls state") if reporter else _noop_context():
+        tls_file, warnings = write_tls_state_excluding(options, store, excluded_names={name})
     if isinstance(project, GoSiteProject):
         deleted_systemd_unit_file = options.execution.stage_path(go_site_service_unit_path(project))
-        warnings.extend(_delete_go_site_service(project, options, force=force))
+        with reporter.step("delete go service") if reporter else _noop_context():
+            warnings.extend(_delete_go_site_service(project, options, force=force))
     if force:
-        warnings.extend(restart_httpd_forced(options))
-        backup_archive, purge_warnings = purge_source_backed_project(project, options, force=True)
-        warnings.extend(purge_warnings)
+        with reporter.step("forced restart httpd") if reporter else _noop_context():
+            warnings.extend(restart_httpd_forced(options))
+        with reporter.step("forced purge source-backed project") if reporter else _noop_context():
+            backup_archive, purge_warnings = purge_source_backed_project(
+                project,
+                options,
+                force=True,
+            )
+            warnings.extend(purge_warnings)
     else:
-        restart_httpd(options)
-        backup_archive, purge_warnings = purge_source_backed_project(project, options)
-        warnings.extend(purge_warnings)
+        with reporter.step("restart httpd") if reporter else _noop_context():
+            restart_httpd(options)
+        with reporter.step("purge source-backed project") if reporter else _noop_context():
+            backup_archive, purge_warnings = purge_source_backed_project(project, options)
+            warnings.extend(purge_warnings)
     if options.json_output:
         print(
             dump_json(
@@ -427,25 +470,32 @@ def delete_project(name: str, options: CommonOptions, *, force: bool = False) ->
 
 
 def update_project(name: str, options: CommonOptions) -> int:
+    reporter = options.execution.reporter
     store = ProjectStore(options.project_dir, context=options.execution)
-    project = store.load(name)
-    plan = build_update_plan(project)
+    with reporter.step("load project") if reporter else _noop_context():
+        project = store.load(name)
+    with reporter.step("build update plan") if reporter else _noop_context():
+        plan = build_update_plan(project)
     runner = CommandRunner(options.execution)
     if isinstance(project, (StaticSiteProject, WsgiSiteProject, GoSiteProject)):
-        configure_local_git_safe_directories(project, options)
-        ensure_update_safe(project, options)
+        with reporter.step("configure local git safe directories") if reporter else _noop_context():
+            configure_local_git_safe_directories(project, options)
+        with reporter.step("update safety checks") if reporter else _noop_context():
+            ensure_update_safe(project, options)
     if plan.supported and plan.working_tree is not None:
-        for command in plan.commands:
-            if isinstance(project, (StaticSiteProject, WsgiSiteProject, GoSiteProject)) and (
-                project.source_type != "local_git" or command[0] != "git"
-            ):
-                if command[0] == "systemctl":
-                    runner.run(list(command), cwd=plan.working_tree)
+        with reporter.step("run update commands") if reporter else _noop_context():
+            for command in plan.commands:
+                if isinstance(project, (StaticSiteProject, WsgiSiteProject, GoSiteProject)) and (
+                    project.source_type != "local_git" or command[0] != "git"
+                ):
+                    if command[0] == "systemctl":
+                        runner.run(list(command), cwd=plan.working_tree)
+                    else:
+                        runner.run(list(command), cwd=plan.working_tree, username=project.username)
                 else:
-                    runner.run(list(command), cwd=plan.working_tree, username=project.username)
-            else:
-                runner.run(list(command), cwd=plan.working_tree)
-        normalize_static_site_permissions(project, options)
+                    runner.run(list(command), cwd=plan.working_tree)
+        with reporter.step("normalize static site permissions") if reporter else _noop_context():
+            normalize_static_site_permissions(project, options)
     if options.json_output:
         print(
             dump_json(
@@ -477,19 +527,23 @@ def update_project(name: str, options: CommonOptions) -> int:
 
 
 def logs_project(name: str, options: CommonOptions) -> int:
+    reporter = options.execution.reporter
     store = ProjectStore(options.project_dir, context=options.execution)
-    project = store.load(name)
-    error_log = DeploySettings().paths.apache_log_dir / f"error-{project.hostname}.log"
-    access_log = DeploySettings().paths.apache_log_dir / f"access-{project.hostname}.log"
+    with reporter.step("load project") if reporter else _noop_context():
+        project = store.load(name)
+    with reporter.step("resolve log paths") if reporter else _noop_context():
+        error_log = DeploySettings().paths.apache_log_dir / f"error-{project.hostname}.log"
+        access_log = DeploySettings().paths.apache_log_dir / f"access-{project.hostname}.log"
     runner = CommandRunner(options.execution)
-    if isinstance(project, GoSiteProject):
-        command = (
-            f"tail -F {error_log} {access_log} & "
-            f"exec journalctl --no-pager -u {go_site_service_unit_name(project)} -f"
-        )
-        runner.run(["sh", "-lc", command])
-    else:
-        runner.run(["tail", "-F", str(error_log), str(access_log)])
+    with reporter.step("open logs") if reporter else _noop_context():
+        if isinstance(project, GoSiteProject):
+            command = (
+                f"tail -F {error_log} {access_log} & "
+                f"exec journalctl --no-pager -u {go_site_service_unit_name(project)} -f"
+            )
+            runner.run(["sh", "-lc", command])
+        else:
+            runner.run(["tail", "-F", str(error_log), str(access_log)])
     if options.json_output:
         print(
             dump_json(
@@ -518,6 +572,14 @@ def logs_project(name: str, options: CommonOptions) -> int:
     if options.execution.command_log_path() is not None:
         print(f"command_log: {options.execution.command_log_path()}")
     return 0
+
+
+class _noop_context:
+    def __enter__(self):
+        return None
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
 
 def bootstrap_apache(
