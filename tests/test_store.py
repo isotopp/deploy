@@ -67,3 +67,25 @@ def test_configtest_store_lists_and_loads_staged_projects(tmp_path) -> None:
     assert store.list_names() == ["grafana"]
     project = store.load("grafana")
     assert project.hostname == "grafana.home.koehntopp.de"
+
+
+def test_load_supported_projects_skips_unsupported_records(tmp_path) -> None:
+    project_dir = tmp_path / "projects"
+    project_dir.mkdir()
+    (project_dir / "grafana").write_text(
+        '{"type":"proxy","project":"grafana","hostname":"grafana.home.koehntopp.de","port":3000}\n',
+        encoding="utf-8",
+    )
+    (project_dir / "legacy-bot").write_text(
+        '{"type":"discord_bot","project":"legacy-bot","hostname":"bot.example.invalid"}\n',
+        encoding="utf-8",
+    )
+
+    store = ProjectStore(project_dir)
+
+    projects, warnings = store.load_supported_projects()
+
+    assert [project.name for project in projects] == ["grafana"]
+    assert warnings == [
+        "skipping unsupported project record legacy-bot: unsupported project type: discord_bot"
+    ]

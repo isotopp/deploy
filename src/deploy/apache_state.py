@@ -22,7 +22,7 @@ def write_apache_state(
         options.apache_sites_dir / site_config.filename,
         site_config.content,
     )
-    all_projects = [store.load(name) for name in store.list_names()]
+    all_projects, project_warnings = store.load_supported_projects()
     apache_sites_dirs = [options.apache_sites_dir]
     staged_sites_dir = file_system.context.stage_path(options.apache_sites_dir)
     if staged_sites_dir != options.apache_sites_dir:
@@ -42,7 +42,7 @@ def write_apache_state(
             "apache_site_file": apache_site_file,
             "apache_tls_file": apache_tls_file,
         },
-        manual_domain_warnings(manual_hostnames),
+        project_warnings + manual_domain_warnings(manual_hostnames),
     )
 
 
@@ -57,7 +57,7 @@ def write_tls_state_excluding(
     excluded_names: set[str],
 ) -> tuple[Path, list[str]]:
     file_system = FileSystem(options.execution)
-    all_projects = [store.load(name) for name in store.list_names() if name not in excluded_names]
+    all_projects, project_warnings = store.load_supported_projects(excluded_names=excluded_names)
     apache_sites_dirs = [options.apache_sites_dir]
     staged_sites_dir = file_system.context.stage_path(options.apache_sites_dir)
     if staged_sites_dir != options.apache_sites_dir:
@@ -72,7 +72,7 @@ def write_tls_state_excluding(
             options.apache_tls_config,
             render_ssldomain_config(hostnames, fqdn=options.machine_fqdn),
         ),
-        manual_domain_warnings(manual_hostnames),
+        project_warnings + manual_domain_warnings(manual_hostnames),
     )
 
 

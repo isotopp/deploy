@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from .errors import ProjectNotFoundError
+from .errors import ProjectNotFoundError, ProjectValidationError
 from .models import DeployProject, project_from_record, project_path
 from .runtime import ExecutionContext, RunMode
 
@@ -54,6 +54,23 @@ class ProjectStore:
         with path.open("r", encoding="utf-8") as handle:
             record = json.load(handle)
         return project_from_record(record, name=name)
+
+    def load_supported_projects(
+        self,
+        *,
+        excluded_names: set[str] | None = None,
+    ) -> tuple[list[DeployProject], list[str]]:
+        projects: list[DeployProject] = []
+        warnings: list[str] = []
+        excluded = excluded_names or set()
+        for name in self.list_names():
+            if name in excluded:
+                continue
+            try:
+                projects.append(self.load(name))
+            except ProjectValidationError as exc:
+                warnings.append(f"skipping unsupported project record {name}: {exc}")
+        return projects, warnings
 
     def save(self, project: DeployProject) -> Path:
         target = project_path(self._target_dir(), project.name)

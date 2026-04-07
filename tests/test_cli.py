@@ -124,6 +124,39 @@ def test_create_go_subcommand_parses_type_specific_options(capsys) -> None:
     assert '"upstream_port": 3001' in out
 
 
+def test_create_preview_skips_unsupported_host_projects(tmp_path, capsys) -> None:
+    project_dir = tmp_path / "projects"
+    project_dir.mkdir()
+    (project_dir / "legacy-bot").write_text(
+        '{"type":"discord_bot","project":"legacy-bot","hostname":"bot.example.invalid"}\n',
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "--json",
+            "--dry-run",
+            "--project-dir",
+            str(project_dir),
+            "create",
+            "proxy",
+            "immich",
+            "--hostname",
+            "immich.home.koehntopp.de",
+            "--upstream-port",
+            "2283",
+        ]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert '"project_type": "proxy"' in out
+    assert (
+        "skipping unsupported project record legacy-bot: unsupported project type: discord_bot"
+        in out
+    )
+
+
 def test_create_static_site_does_not_uv_sync(tmp_path, capsys) -> None:
     configtest_prefix = tmp_path / "staging"
     project_dir = tmp_path / "projects"
