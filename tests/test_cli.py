@@ -259,8 +259,7 @@ def test_create_redirect_only_writes_config_and_restarts(tmp_path, capsys) -> No
     assert "useradd " not in cmdlog
     assert "git clone " not in cmdlog
     assert "uv sync" not in cmdlog
-    assert "systemctl stop httpd.service" in cmdlog
-    assert "systemctl start httpd.service" in cmdlog
+    assert "systemctl restart httpd.service" in cmdlog
     staged_site = (
         configtest_prefix
         / apache_sites_dir.relative_to(apache_sites_dir.anchor)
@@ -476,7 +475,7 @@ def test_configtest_writes_staged_files_and_command_log(tmp_path, capsys) -> Non
     assert '"mode": "configtest"' in out
     assert (configtest_prefix / "tmp" / "pytest-of-root").exists() is False
     assert (configtest_prefix / "cmdlog.sh").exists()
-    assert "systemctl stop httpd.service" in (configtest_prefix / "cmdlog.sh").read_text(
+    assert "systemctl restart httpd.service" in (configtest_prefix / "cmdlog.sh").read_text(
         encoding="utf-8"
     )
     assert "systemctl --no-pager status httpd.service" in (
@@ -561,7 +560,7 @@ def test_verbose_restart_reports_commands_and_summary(tmp_path, capsys) -> None:
     assert exit_code == 0
     out = capsys.readouterr().out
     assert "verbose: start step write apache state" in out
-    assert "verbose: start command systemctl stop httpd.service" in out
+    assert "verbose: start command systemctl restart httpd.service" in out
     assert "verbose: done command systemctl --no-pager status httpd.service rc=0 in " in out
     assert "verbose: summary for restart" in out
 
@@ -845,7 +844,7 @@ def test_delete_force_in_configtest_reports_force(tmp_path, capsys) -> None:
     out = capsys.readouterr().out
     assert '"force": true' in out
     cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
-    assert "systemctl stop httpd.service" in cmdlog
+    assert "systemctl restart httpd.service" in cmdlog
     assert "systemctl --no-pager status httpd.service" in cmdlog
     assert "userdel -r keks" in cmdlog
 

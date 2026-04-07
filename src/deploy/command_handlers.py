@@ -36,10 +36,8 @@ def restart_httpd(options: CommonOptions) -> None:
     runner = CommandRunner(options.execution)
     # mod_md may provision a certificate on the first restart cycle and only
     # activate it on the second cycle, so this double restart is intentional.
-    runner.run(["systemctl", "stop", "httpd.service"])
-    runner.run(["systemctl", "start", "httpd.service"])
-    runner.run(["systemctl", "stop", "httpd.service"])
-    runner.run(["systemctl", "start", "httpd.service"])
+    runner.run(["systemctl", "restart", "httpd.service"])
+    runner.run(["systemctl", "restart", "httpd.service"])
     runner.run(["systemctl", "--no-pager", "status", "httpd.service"])
 
 
@@ -58,10 +56,8 @@ def restart_httpd_forced(options: CommonOptions) -> list[str]:
     runner = CommandRunner(options.execution)
     warnings: list[str] = []
     commands = [
-        ["systemctl", "stop", "httpd.service"],
-        ["systemctl", "start", "httpd.service"],
-        ["systemctl", "stop", "httpd.service"],
-        ["systemctl", "start", "httpd.service"],
+        ["systemctl", "restart", "httpd.service"],
+        ["systemctl", "restart", "httpd.service"],
         ["systemctl", "--no-pager", "status", "httpd.service"],
     ]
     for command in commands:
