@@ -50,6 +50,7 @@
   - read-oriented commands should support `--json` output
   - Python style preferences: `dataclasses`, `pathlib`, and `httpx` if HTTP is needed
   - project tooling preferences: `pytest`, `ty`, and `ruff`
+  - bump `project.version` in `pyproject.toml` with `uv version ...`, not by manual file edits
 
 ## /etc/projects
 
