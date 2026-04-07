@@ -343,6 +343,84 @@ def test_create_go_site_writes_systemd_unit_and_builds(tmp_path, capsys) -> None
     assert "systemctl enable --now wiki.service" in cmdlog
 
 
+def test_adopt_wsgi_writes_metadata_without_provisioning(tmp_path, capsys) -> None:
+    configtest_prefix = tmp_path / "staging"
+    project_dir = tmp_path / "projects"
+    apache_sites_dir = tmp_path / "sites"
+    apache_tls_config = tmp_path / "conf.d" / "ssldomain.conf"
+
+    exit_code = main(
+        [
+            "--json",
+            "--configtest",
+            str(configtest_prefix),
+            "--project-dir",
+            str(project_dir),
+            "--apache-sites-dir",
+            str(apache_sites_dir),
+            "--apache-tls-config",
+            str(apache_tls_config),
+            "adopt",
+            "wsgi",
+            "extras",
+            "--hostname",
+            "extras.snackbag.net",
+            "--source-type",
+            "git",
+            "--source",
+            "git@github.com:vijfhuizen-c0derz/SnackBag-Extras.git",
+            "--username",
+            "extras",
+            "--project-dir-name",
+            "extras",
+            "--home",
+            "/home/extras",
+        ]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert '"phase": "adopt"' in out
+    assert '"managed_user": false' in out
+    assert '"project_dir": "extras"' in out
+    cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
+    assert "useradd " not in cmdlog
+    assert "git clone " not in cmdlog
+    assert "uv sync" not in cmdlog
+
+
+def test_delete_unmanaged_source_backed_project_warns_instead_of_userdel(tmp_path, capsys) -> None:
+    project_dir = tmp_path / "projects"
+    project_dir.mkdir()
+    (project_dir / "kris").write_text(
+        (
+            '{"type":"static_site","project":"kris","hostname":"kris.home.koehntopp.de",'
+            '"source":"git@github.com:snackbag/kris.git","source_type":"git","username":"kris-web",'
+            '"project_dir":"site","home":"/home/kris-web","managed_user":false,"managed_checkout":false}\n'
+        ),
+        encoding="utf-8",
+    )
+    configtest_prefix = tmp_path / "staging"
+
+    exit_code = main(
+        [
+            "--json",
+            "--configtest",
+            str(configtest_prefix),
+            "--project-dir",
+            str(project_dir),
+            "delete",
+            "kris",
+        ]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "refusing to delete unmanaged user kris-web" in out
+    cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
+    assert "userdel -r kris-web" not in cmdlog
+
+
 
 def test_configtest_writes_staged_files_and_command_log(tmp_path, capsys) -> None:
     project_dir = tmp_path / "projects"
@@ -647,7 +725,7 @@ def test_delete_source_backed_in_configtest_logs_backup_and_userdel(tmp_path, ca
         (
             '{"type":"static_site","project":"keks","hostname":"keks.home.koehntopp.de",'
             '"source_type":"local_git","source":"/home/kris/keks","username":"keks",'
-            '"projectdir":"checkout","home":"/home/keks"}\n'
+            '"project_dir":"checkout","home":"/home/keks","managed_user":true,"managed_checkout":true}\n'
         ),
         encoding="utf-8",
     )
@@ -687,7 +765,7 @@ def test_delete_force_in_configtest_reports_force(tmp_path, capsys) -> None:
         (
             '{"type":"static_site","project":"keks","hostname":"keks.home.koehntopp.de",'
             '"source_type":"local_git","source":"/home/kris/keks","username":"keks",'
-            '"projectdir":"checkout","home":"/home/keks"}\n'
+            '"project_dir":"checkout","home":"/home/keks","managed_user":true,"managed_checkout":true}\n'
         ),
         encoding="utf-8",
     )

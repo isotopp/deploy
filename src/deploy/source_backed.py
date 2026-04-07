@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 from .command_common import CommonOptions, source_backed_backup_path, source_backed_home
-from .errors import CreatePreflightError
+from .errors import AdoptPreflightError, CreatePreflightError, UpdatePreflightError
 from .gitops import (
     clone_command,
     discover_updater,
@@ -42,6 +42,40 @@ def ensure_fresh_source_backed_target(project: DeployProject, options: CommonOpt
         raise CreatePreflightError(f"home already exists: {home_path}")
     if checkout_path.exists():
         raise CreatePreflightError(f"checkout already exists: {checkout_path}")
+
+
+def ensure_adoptable_source_backed_target(project: DeployProject, options: CommonOptions) -> None:
+    if not isinstance(project, (StaticSiteProject, WsgiSiteProject, GoSiteProject)):
+        return
+    if options.execution.mode is not RunMode.LIVE:
+        return
+
+    assert project.home is not None
+    home_path = Path(project.home)
+    checkout_path = home_path / project.project_dir
+
+    try:
+        user_record = pwd.getpwnam(project.username)
+    except KeyError as exc:
+        raise AdoptPreflightError(
+            f"user does not exist: {project.username}. Create or verify the account manually, "
+            f"then rerun adopt after checking {home_path} and {checkout_path}."
+        ) from exc
+
+    if user_record.pw_dir != str(home_path):
+        raise AdoptPreflightError(
+            f"user {project.username} has home {user_record.pw_dir}, not {home_path}. "
+            "Adjust the project metadata or fix the account manually before adopting."
+        )
+    if not home_path.exists():
+        raise AdoptPreflightError(
+            f"home does not exist: {home_path}. Create or restore it manually before adopting."
+        )
+    if not checkout_path.exists():
+        raise AdoptPreflightError(
+            f"checkout does not exist: {checkout_path}. Clone or move the existing tree there "
+            "manually before adopting."
+        )
 
 
 def provision_source_backed_project(project: DeployProject, options: CommonOptions) -> None:
@@ -117,6 +151,16 @@ def purge_source_backed_project(
         user_record = pwd.getpwnam(project.username)
     except KeyError:
         user_record = None
+
+    if not project.managed_user:
+        warnings.append(
+            f"refusing to delete unmanaged user {project.username}: "
+            "verify the account manually and, "
+            f"if you really want to remove it, run "
+            f"'tar --exclude {checkout_path} -czf {backup_path} {home_path}' "
+            f"and then 'userdel -r {project.username}' yourself after checking the current state"
+        )
+        return None, warnings
 
     if options.execution.mode is RunMode.CONFIGTEST:
         runner.run(["rm", "-f", str(backup_path)], check=not force)
@@ -201,6 +245,40 @@ def managed_user_matches_hostname(*, gecos: str, hostname: str) -> bool:
     return gecos.startswith(MANAGED_USER_GECOS_PREFIX) and gecos == expected
 
 
+def ensure_update_safe(project: DeployProject, options: CommonOptions) -> None:
+    if not isinstance(project, (StaticSiteProject, WsgiSiteProject, GoSiteProject)):
+        return
+    if options.execution.mode is not RunMode.LIVE:
+        return
+
+    working_tree = Path(project.home or "") / project.project_dir
+    git_dir = working_tree / ".git"
+    if not git_dir.exists():
+        raise UpdatePreflightError(
+            f"working tree is not a git checkout: {working_tree}. "
+            "Inspect it manually before running update."
+        )
+    if project.managed_checkout:
+        return
+
+    configured_origin = _git_output(working_tree, "remote", "get-url", "origin")
+    if configured_origin is None:
+        raise UpdatePreflightError(
+            f"adopted checkout has no origin remote: {working_tree}. "
+            "Verify and repair the repo manually before update."
+        )
+
+    expected_source = project.source
+    if project.source_type == "local_git":
+        expected_source = str(Path(project.source).expanduser())
+    if configured_origin != expected_source:
+        raise UpdatePreflightError(
+            f"adopted checkout origin {configured_origin!r} does not match "
+            f"configured source {expected_source!r}. "
+            "Inspect and reconcile the checkout manually before update."
+        )
+
+
 def _desired_safe_directories(
     project: StaticSiteProject | WsgiSiteProject | GoSiteProject,
 ) -> tuple[str, ...]:
@@ -229,3 +307,17 @@ def _existing_safe_directories() -> set[str]:
     if completed.returncode not in {0, 1}:
         return set()
     return {line.strip() for line in completed.stdout.splitlines() if line.strip()}
+
+
+def _git_output(cwd: Path, *args: str) -> str | None:
+    completed = subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        return None
+    value = completed.stdout.strip()
+    return value or None

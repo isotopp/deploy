@@ -30,6 +30,8 @@ class StaticSiteProject(BaseProject):
     username: str
     project_dir: str
     home: str | None = None
+    managed_user: bool = True
+    managed_checkout: bool = True
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,8 @@ class WsgiSiteProject(BaseProject):
     username: str
     project_dir: str
     home: str | None = None
+    managed_user: bool = True
+    managed_checkout: bool = True
 
 
 @dataclass(frozen=True)
@@ -66,6 +70,8 @@ class GoSiteProject(BaseProject):
     project_dir: str
     upstream_port: int
     home: str | None = None
+    managed_user: bool = True
+    managed_checkout: bool = True
     binary_name: str | None = None
     service_name: str | None = None
 
@@ -114,10 +120,43 @@ def _optional_str(record: dict[str, Any], key: str) -> str | None:
     return value
 
 
-def _project_dir_default(name: str, record: dict[str, Any]) -> str:
+def _optional_bool(record: dict[str, Any], key: str) -> bool | None:
+    value = record.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, bool):
+        raise ProjectValidationError(f"invalid field: {key}")
+    return value
+
+
+def _managed_user_value(record: dict[str, Any]) -> bool:
+    value = _optional_bool(record, "managed_user")
+    if value is None:
+        return False
+    return value
+
+
+def _managed_checkout_value(record: dict[str, Any]) -> bool:
+    value = _optional_bool(record, "managed_checkout")
+    if value is None:
+        return False
+    return value
+
+
+def _project_dir_value(record: dict[str, Any]) -> str:
+    project_dir = _optional_str(record, "project_dir")
+    if project_dir:
+        return project_dir
     legacy = _optional_str(record, "projectdir")
-    if legacy:
+    if legacy and not _managed_checkout_value(record):
         return legacy
+    if legacy and "source" not in record and "github" in record:
+        return legacy
+    if legacy:
+        raise ProjectValidationError(
+            "legacy field projectdir is only accepted for adopted or legacy "
+            "source-backed projects; use project_dir in managed records"
+        )
     return "checkout"
 
 
@@ -156,8 +195,10 @@ def project_from_record(record: dict[str, Any], *, name: str | None = None) -> D
             source_type=_source_type_value(record),
             source=_source_value(record),
             username=_require_str(record, "username"),
-            project_dir=_project_dir_default(project_name, record),
+            project_dir=_project_dir_value(record),
             home=_optional_str(record, "home"),
+            managed_user=_managed_user_value(record),
+            managed_checkout=_managed_checkout_value(record),
         )
 
     if project_type == "redirect_site":
@@ -179,8 +220,10 @@ def project_from_record(record: dict[str, Any], *, name: str | None = None) -> D
             source_type=_source_type_value(record),
             source=_source_value(record),
             username=_require_str(record, "username"),
-            project_dir=_project_dir_default(project_name, record),
+            project_dir=_project_dir_value(record),
             home=_optional_str(record, "home"),
+            managed_user=_managed_user_value(record),
+            managed_checkout=_managed_checkout_value(record),
         )
 
     if project_type == "custom":
@@ -205,9 +248,11 @@ def project_from_record(record: dict[str, Any], *, name: str | None = None) -> D
             source_type=_source_type_value(record),
             source=_source_value(record),
             username=_require_str(record, "username"),
-            project_dir=_project_dir_default(project_name, record),
+            project_dir=_project_dir_value(record),
             upstream_port=upstream_port,
             home=_optional_str(record, "home"),
+            managed_user=_managed_user_value(record),
+            managed_checkout=_managed_checkout_value(record),
             binary_name=_optional_str(record, "binary_name"),
             service_name=_optional_str(record, "service_name"),
         )

@@ -12,7 +12,6 @@ from .runner import CommandRunner
 from .runtime import ExecutionContext, RunMode
 from .settings import DeploySettings
 
-DEFAULT_IP_RANGES = "{ip} 127.0.0.1 192.168.0.0/16"
 SERVER_ADMIN = "kristian.koehntopp@gmail.com"
 COMBINEDIO_LOG_FORMAT = '      LogFormat "%h %l %u %t \\"%r\\" %>s %b \\"%{{Referer}}i\\" \\"%{{User-Agent}}i\\" %I %O" combinedio'  # noqa: E501
 
@@ -395,8 +394,18 @@ def ensure_include(text: str, include_line: str) -> str:
     return f"{text}{include_line}\n"
 
 
-def update_status_ip_restrictions(text: str, external_ip: str) -> str:
-    replacement = f"        Require ip {DEFAULT_IP_RANGES.format(ip=external_ip)}"
+def render_status_ip_ranges(external_ip: str, additional_ips: list[str]) -> str:
+    seen: set[str] = set()
+    values: list[str] = []
+    for value in [external_ip, *additional_ips, "127.0.0.1", "192.168.0.0/16"]:
+        if value not in seen:
+            seen.add(value)
+            values.append(value)
+    return " ".join(values)
+
+
+def update_status_ip_restrictions(text: str, external_ip: str, additional_ips: list[str]) -> str:
+    replacement = f"        Require ip {render_status_ip_ranges(external_ip, additional_ips)}"
     text = re.sub(r'(^\s*Require ip .*$)', replacement, text, count=1, flags=re.MULTILINE)
     text = re.sub(r'(^\s*Require ip .*$)', replacement, text, count=1, flags=re.MULTILINE)
     return text
@@ -449,20 +458,23 @@ def bootstrap_added_files(settings: DeploySettings, fs: FileSystem) -> dict[str,
 
 
 def bootstrap_ip_only(
-    settings: DeploySettings, fs: FileSystem, external_ip: str
+    settings: DeploySettings,
+    fs: FileSystem,
+    external_ip: str,
+    additional_ips: list[str],
 ) -> dict[str, Path]:
     httpd_text = settings.paths.httpd_conf.read_text(encoding="utf-8")
-    updated = update_status_ip_restrictions(httpd_text, external_ip)
+    updated = update_status_ip_restrictions(httpd_text, external_ip, additional_ips)
     return {"httpd_conf": fs.write_text(settings.paths.httpd_conf, updated)}
 
 
-def render_httpd_conf(external_ip: str) -> str:
+def render_httpd_conf(external_ip: str, additional_ips: list[str]) -> str:
     return HTTPD_CONF_TEMPLATE.replace(
         "__COMBINEDIO_LOG_FORMAT__",
         COMBINEDIO_LOG_FORMAT,
     ).format(
         server_admin=SERVER_ADMIN,
-        server_status_ips=DEFAULT_IP_RANGES.format(ip=external_ip),
+        server_status_ips=render_status_ip_ranges(external_ip, additional_ips),
     )
 
 
@@ -471,6 +483,7 @@ def bootstrap_all(
     fs: FileSystem,
     runner: CommandRunner,
     external_ip: str,
+    additional_ips: list[str],
 ) -> dict[str, Path]:
     paths = settings.paths
     httpd_root = paths.httpd_conf.parent.parent
@@ -488,7 +501,10 @@ def bootstrap_all(
         hostname_source_root = httpd_root
     existing_hostnames = site_hostnames_from_dir(hostname_source_root / "conf.sites.d")
     written: dict[str, Path] = {}
-    written["httpd_conf"] = fs.write_text(paths.httpd_conf, render_httpd_conf(external_ip))
+    written["httpd_conf"] = fs.write_text(
+        paths.httpd_conf,
+        render_httpd_conf(external_ip, additional_ips),
+    )
     written["ssl_conf"] = fs.write_text(paths.ssl_conf, SSL_CONF_CONTENT)
     written["brotli_module_conf"] = fs.write_text(paths.brotli_module_conf, BROTLI_CONF_CONTENT)
     written["dav_module_conf"] = fs.write_text(paths.dav_module_conf, DAV_CONF_CONTENT)
@@ -509,20 +525,22 @@ def run_bootstrap(
     mode_all: bool,
     mode_ip_only: bool,
     external_ip: str | None = None,
+    additional_ips: list[str] | None = None,
 ) -> BootstrapResult:
     fs = FileSystem(context)
     runner = CommandRunner(context)
     discovered_ip = external_ip
+    extra_ips = additional_ips or []
 
     if mode_all or mode_ip_only:
         discovered_ip = discovered_ip or fetch_external_ip()
 
     if mode_all:
         assert discovered_ip is not None
-        written = bootstrap_all(settings, fs, runner, discovered_ip)
+        written = bootstrap_all(settings, fs, runner, discovered_ip, extra_ips)
     elif mode_ip_only:
         assert discovered_ip is not None
-        written = bootstrap_ip_only(settings, fs, discovered_ip)
+        written = bootstrap_ip_only(settings, fs, discovered_ip, extra_ips)
     else:
         written = bootstrap_added_files(settings, fs)
 

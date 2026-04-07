@@ -35,6 +35,10 @@ def prepare_project_for_create(project: DeployProject) -> DeployProject:
     return project
 
 
+def prepare_project_for_adopt(project: DeployProject) -> DeployProject:
+    return prepare_project_for_create(project)
+
+
 def source_backed_home(project: DeployProject) -> Path | None:
     if not isinstance(project, (StaticSiteProject, WsgiSiteProject, GoSiteProject)):
         return None

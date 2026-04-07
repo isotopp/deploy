@@ -109,6 +109,25 @@ def test_bootstrap_ip_only_updates_ip_lines(tmp_path, monkeypatch) -> None:
     assert "Require ip 8.8.8.8 127.0.0.1 192.168.0.0/16" in staged_httpd
 
 
+def test_bootstrap_ip_only_includes_additional_ips(tmp_path, monkeypatch) -> None:
+    settings = make_settings(tmp_path)
+    monkeypatch.setattr("deploy.apache_bootstrap.fetch_external_ip", lambda: "8.8.8.8")
+
+    result = run_bootstrap(
+        settings=settings,
+        context=ExecutionContext(mode=RunMode.CONFIGTEST, configtest_prefix=tmp_path / "stage"),
+        mode_all=False,
+        mode_ip_only=True,
+        additional_ips=["1.2.3.4", "10.0.0.5"],
+    )
+
+    assert result.external_ip == "8.8.8.8"
+    staged_httpd = (
+        tmp_path / "stage" / settings.paths.httpd_conf.relative_to(settings.paths.httpd_conf.anchor)
+    ).read_text(encoding="utf-8")
+    assert "Require ip 8.8.8.8 1.2.3.4 10.0.0.5 127.0.0.1 192.168.0.0/16" in staged_httpd
+
+
 def test_bootstrap_all_logs_rotation_and_writes_managed_files(tmp_path, monkeypatch) -> None:
     settings = make_settings(tmp_path)
     seed_existing_apache_state(settings)

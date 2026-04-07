@@ -40,6 +40,8 @@ def test_loads_legacy_wsgi_record() -> None:
     assert project.source_type == "git"
     assert project.source == "git@github.com:isotopp/webauthn-test.git"
     assert project.project_dir == "webauthn"
+    assert project.managed_user is False
+    assert project.managed_checkout is False
 
 
 def test_loads_redirect_typo_compatibility() -> None:
@@ -74,3 +76,24 @@ def test_loads_legacy_go_site_record() -> None:
     assert project.source_type == "git"
     assert project.upstream_port == 3001
     assert project.project_dir == "wiki"
+    assert project.managed_checkout is False
+
+
+def test_loads_new_adopted_record_with_project_dir() -> None:
+    project = project_from_record(
+        {
+            "type": "wsgi_site",
+            "project": "extras",
+            "hostname": "extras.snackbag.net",
+            "source": "git@github.com:vijfhuizen-c0derz/SnackBag-Extras.git",
+            "source_type": "git",
+            "username": "extras",
+            "project_dir": "extras",
+            "home": "/home/extras",
+            "managed_user": False,
+            "managed_checkout": False,
+        }
+    )
+
+    assert isinstance(project, WsgiSiteProject)
+    assert project.project_dir == "extras"

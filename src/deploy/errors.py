@@ -16,3 +16,11 @@ class CommandExecutionError(DeployError):
 
 class CreatePreflightError(DeployError):
     """Raised when a create operation is not safe to start."""
+
+
+class AdoptPreflightError(DeployError):
+    """Raised when an adopt operation cannot safely attach to existing state."""
+
+
+class UpdatePreflightError(DeployError):
+    """Raised when an update operation requires manual inspection/intervention."""

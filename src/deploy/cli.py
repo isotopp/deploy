@@ -8,6 +8,7 @@ from pathlib import Path
 from .apache import render_site_config
 from .command_common import CommonOptions
 from .command_handlers import (
+    adopt_project,
     bootstrap_apache,
     create_project,
     delete_project,
@@ -120,6 +121,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     create_subparsers = create_parser.add_subparsers(dest="project_type", required=True)
 
+    adopt_parser = subparsers.add_parser(
+        "adopt",
+        help="attach deploy metadata to an existing source-backed site",
+    )
+    adopt_subparsers = adopt_parser.add_subparsers(dest="project_type", required=True)
+
     proxy_parser = create_subparsers.add_parser("proxy", help="create a proxied site preview")
     add_common_create_args(proxy_parser)
     proxy_parser.add_argument("--upstream-host", default="127.0.0.1")
@@ -147,6 +154,20 @@ def build_parser() -> argparse.ArgumentParser:
     go_parser.add_argument("--binary-name", default=None)
     go_parser.add_argument("--service-name", default=None)
 
+    adopt_go_parser = adopt_subparsers.add_parser(
+        "go",
+        help="adopt an existing Go service site behind the Apache proxy",
+    )
+    add_common_create_args(adopt_go_parser)
+    adopt_go_parser.add_argument("--source-type", choices=("git", "local_git"), required=True)
+    adopt_go_parser.add_argument("--source", required=True)
+    adopt_go_parser.add_argument("--username", required=True)
+    adopt_go_parser.add_argument("--upstream-port", "--port", type=int, required=True)
+    adopt_go_parser.add_argument("--project-dir-name", default=None)
+    adopt_go_parser.add_argument("--home", default=None)
+    adopt_go_parser.add_argument("--binary-name", default=None)
+    adopt_go_parser.add_argument("--service-name", default=None)
+
     redirect_parser = create_subparsers.add_parser(
         "redirect",
         help="create a redirect site preview",
@@ -165,6 +186,17 @@ def build_parser() -> argparse.ArgumentParser:
     static_parser.add_argument("--project-dir-name", default=None)
     static_parser.add_argument("--home", default=None)
 
+    adopt_static_parser = adopt_subparsers.add_parser(
+        "static",
+        help="adopt an existing static site checkout",
+    )
+    add_common_create_args(adopt_static_parser)
+    adopt_static_parser.add_argument("--source-type", choices=("git", "local_git"), required=True)
+    adopt_static_parser.add_argument("--source", required=True)
+    adopt_static_parser.add_argument("--username", required=True)
+    adopt_static_parser.add_argument("--project-dir-name", default=None)
+    adopt_static_parser.add_argument("--home", default=None)
+
     wsgi_parser = create_subparsers.add_parser(
         "wsgi",
         help="create a WSGI site preview",
@@ -175,6 +207,17 @@ def build_parser() -> argparse.ArgumentParser:
     wsgi_parser.add_argument("--username", required=True)
     wsgi_parser.add_argument("--project-dir-name", default=None)
     wsgi_parser.add_argument("--home", default=None)
+
+    adopt_wsgi_parser = adopt_subparsers.add_parser(
+        "wsgi",
+        help="adopt an existing WSGI site checkout",
+    )
+    add_common_create_args(adopt_wsgi_parser)
+    adopt_wsgi_parser.add_argument("--source-type", choices=("git", "local_git"), required=True)
+    adopt_wsgi_parser.add_argument("--source", required=True)
+    adopt_wsgi_parser.add_argument("--username", required=True)
+    adopt_wsgi_parser.add_argument("--project-dir-name", default=None)
+    adopt_wsgi_parser.add_argument("--home", default=None)
 
     bootstrap_parser = subparsers.add_parser(
         "bootstrap-apache",
@@ -192,6 +235,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="bootstrap_ip_only",
         help="only refresh the server-status/server-info IP restriction lines",
+    )
+    bootstrap_parser.add_argument(
+        "--additional-ip",
+        action="append",
+        default=[],
+        dest="additional_ips",
+        help="additional IP address to include in the status/info ACLs; may be repeated",
     )
 
     return parser
@@ -240,6 +290,8 @@ def build_project_from_args(args: argparse.Namespace) -> DeployProject:
             project_dir=args.project_dir_name or "checkout",
             upstream_port=args.upstream_port,
             home=args.home,
+            managed_user=args.command != "adopt",
+            managed_checkout=args.command != "adopt",
             binary_name=args.binary_name,
             service_name=args.service_name,
         )
@@ -260,6 +312,8 @@ def build_project_from_args(args: argparse.Namespace) -> DeployProject:
             username=args.username,
             project_dir=args.project_dir_name or "checkout",
             home=args.home,
+            managed_user=args.command != "adopt",
+            managed_checkout=args.command != "adopt",
         )
     if args.project_type == "wsgi":
         return WsgiSiteProject(
@@ -271,6 +325,8 @@ def build_project_from_args(args: argparse.Namespace) -> DeployProject:
             username=args.username,
             project_dir=args.project_dir_name or "checkout",
             home=args.home,
+            managed_user=args.command != "adopt",
+            managed_checkout=args.command != "adopt",
         )
     return ProxyProject(
         name=args.name,
@@ -347,6 +403,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "create":
         return create_project(build_project_from_args(args), options)
 
+    if args.command == "adopt":
+        return adopt_project(build_project_from_args(args), options)
+
     if args.command == "delete":
         return delete_project(args.name, options, force=args.force)
 
@@ -372,7 +431,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return logs_project(args.name, options)
 
     if args.command == "bootstrap-apache":
-        return bootstrap_apache(args.bootstrap_all, args.bootstrap_ip_only, options)
+        return bootstrap_apache(
+            args.bootstrap_all,
+            args.bootstrap_ip_only,
+            options,
+            additional_ips=args.additional_ips,
+        )
 
     parser.error(f"unsupported command: {args.command}")
     return 2
