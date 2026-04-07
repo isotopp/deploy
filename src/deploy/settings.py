@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from socket import getfqdn
 
 
 @dataclass(frozen=True)
@@ -19,7 +20,7 @@ class DeployPaths:
     cgi_module_conf: Path = Path("/etc/httpd/conf.modules.d/01-cgi.conf")
     httpd_logrotate: Path = Path("/etc/logrotate.d/httpd")
     apache_sites_include: str = "IncludeOptional conf.sites.d/*.conf"
-    machine_fqdn: str = "server.home.koehntopp.de"
+    machine_fqdn: str = field(default_factory=getfqdn)
 
 
 @dataclass(frozen=True)
