@@ -5,7 +5,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from .models import DeployProject, StaticSiteProject, WsgiSiteProject
+from .models import DeployProject, GoSiteProject, StaticSiteProject, WsgiSiteProject
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,9 @@ def _safe_directory_args(source_path: Path) -> tuple[str, ...]:
     return (str(source_path), str(git_dir))
 
 
-def local_git_safe_directories(project: StaticSiteProject | WsgiSiteProject) -> tuple[str, ...]:
+def local_git_safe_directories(
+    project: StaticSiteProject | WsgiSiteProject | GoSiteProject,
+) -> tuple[str, ...]:
     if project.source_type != "local_git":
         return ()
     source_path = _resolved_source_path(project.source)
@@ -36,7 +38,7 @@ def local_git_safe_directories(project: StaticSiteProject | WsgiSiteProject) -> 
 
 
 def clone_command(
-    project: StaticSiteProject | WsgiSiteProject, checkout_path: Path
+    project: StaticSiteProject | WsgiSiteProject | GoSiteProject, checkout_path: Path
 ) -> tuple[str, ...]:
     source = project.source
     if project.source_type == "local_git":
@@ -76,13 +78,16 @@ def normalize_runtime_command(command: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def project_working_tree(project: DeployProject) -> Path | None:
-    if isinstance(project, (StaticSiteProject, WsgiSiteProject)) and project.home is not None:
+    if (
+        isinstance(project, (StaticSiteProject, WsgiSiteProject, GoSiteProject))
+        and project.home is not None
+    ):
         return Path(project.home) / project.project_dir
     return None
 
 
 def build_update_plan(project: DeployProject) -> UpdatePlan:
-    if not isinstance(project, (StaticSiteProject, WsgiSiteProject)):
+    if not isinstance(project, (StaticSiteProject, WsgiSiteProject, GoSiteProject)):
         return UpdatePlan(
             supported=False,
             working_tree=None,
@@ -103,8 +108,13 @@ def build_update_plan(project: DeployProject) -> UpdatePlan:
     commands.append(("git", "pull", "--rebase"))
     if isinstance(project, WsgiSiteProject):
         commands.append((resolved_uv_executable(), "sync"))
+    elif isinstance(project, GoSiteProject):
+        binary_name = project.binary_name or project.name
+        commands.append(("go", "build", "-o", binary_name))
+        service_name = project.service_name or project.name
+        commands.append(("systemctl", "restart", f"{service_name}.service"))
     updater = discover_updater(working_tree)
-    if updater is not None:
+    if updater is not None and not isinstance(project, GoSiteProject):
         commands.append(normalize_runtime_command(updater))
 
     return UpdatePlan(

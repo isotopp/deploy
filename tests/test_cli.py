@@ -97,6 +97,33 @@ def test_create_wsgi_subcommand_parses_type_specific_options(capsys) -> None:
     assert '"source": "git@github.com:isotopp/webauthn-test.git"' in out
 
 
+def test_create_go_subcommand_parses_type_specific_options(capsys) -> None:
+    exit_code = main(
+        [
+            "--json",
+            "--dry-run",
+            "create",
+            "go",
+            "wiki",
+            "--hostname",
+            "wiki.snackbag.net",
+            "--source-type",
+            "git",
+            "--source",
+            "git@github.com:snackbag/wiki.git",
+            "--username",
+            "wiki",
+            "--upstream-port",
+            "3001",
+        ]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert '"project_type": "go_site"' in out
+    assert '"upstream_port": 3001' in out
+
+
 def test_create_static_site_does_not_uv_sync(tmp_path, capsys) -> None:
     configtest_prefix = tmp_path / "staging"
     project_dir = tmp_path / "projects"
@@ -235,6 +262,52 @@ def test_create_custom_imports_fragment_file(tmp_path, capsys) -> None:
     cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
     assert "useradd " not in cmdlog
     assert "git clone " not in cmdlog
+
+
+def test_create_go_site_writes_systemd_unit_and_builds(tmp_path, capsys) -> None:
+    configtest_prefix = tmp_path / "staging"
+    project_dir = tmp_path / "projects"
+    apache_sites_dir = tmp_path / "sites"
+    apache_tls_config = tmp_path / "conf.d" / "ssldomain.conf"
+
+    exit_code = main(
+        [
+            "--json",
+            "--configtest",
+            str(configtest_prefix),
+            "--project-dir",
+            str(project_dir),
+            "--apache-sites-dir",
+            str(apache_sites_dir),
+            "--apache-tls-config",
+            str(apache_tls_config),
+            "create",
+            "go",
+            "wiki",
+            "--hostname",
+            "wiki.snackbag.net",
+            "--source-type",
+            "local_git",
+            "--source",
+            "/home/kris/wiki",
+            "--username",
+            "wiki",
+            "--upstream-port",
+            "3001",
+        ]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert '"project_type": "go_site"' in out
+    assert '"systemd_unit_file"' in out
+    staged_unit = configtest_prefix / "etc" / "systemd" / "system" / "wiki.service"
+    assert staged_unit.exists()
+    assert "ExecStart=/home/wiki/checkout/wiki" in staged_unit.read_text(encoding="utf-8")
+    cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
+    assert "go build -o wiki" in cmdlog
+    assert "systemctl daemon-reload" in cmdlog
+    assert "systemctl enable --now wiki.service" in cmdlog
 
 
 
@@ -495,6 +568,45 @@ def test_delete_custom_removes_fragment_file(tmp_path, capsys) -> None:
     assert '"fragment_file"' in out
 
 
+def test_delete_go_site_removes_systemd_unit(tmp_path, capsys) -> None:
+    project_dir = tmp_path / "projects"
+    project_dir.mkdir()
+    (project_dir / "wiki").write_text(
+        (
+            '{"type":"go_site","project":"wiki","hostname":"wiki.snackbag.net",'
+            '"source_type":"git","source":"git@github.com:snackbag/wiki.git","username":"wiki",'
+            '"projectdir":"checkout","home":"/home/wiki","port":3001}\n'
+        ),
+        encoding="utf-8",
+    )
+    configtest_prefix = tmp_path / "staging"
+    apache_sites_dir = tmp_path / "sites"
+    apache_tls_config = tmp_path / "conf.d" / "ssldomain.conf"
+
+    exit_code = main(
+        [
+            "--json",
+            "--configtest",
+            str(configtest_prefix),
+            "--project-dir",
+            str(project_dir),
+            "--apache-sites-dir",
+            str(apache_sites_dir),
+            "--apache-tls-config",
+            str(apache_tls_config),
+            "delete",
+            "wiki",
+        ]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert '"systemd_unit_file"' in out
+    cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
+    assert "systemctl disable --now wiki.service" in cmdlog
+    assert "systemctl daemon-reload" in cmdlog
+
+
 def test_delete_source_backed_in_configtest_logs_backup_and_userdel(tmp_path, capsys) -> None:
     project_dir = tmp_path / "projects"
     project_dir.mkdir()
@@ -737,6 +849,39 @@ def test_update_skips_proxy_project(tmp_path, capsys) -> None:
     assert "source-backed update workflow" in out
 
 
+def test_update_go_site_builds_and_restarts_service(tmp_path, capsys) -> None:
+    project_dir = tmp_path / "projects"
+    project_dir.mkdir()
+    (project_dir / "wiki").write_text(
+        (
+            '{"type":"go_site","project":"wiki","hostname":"wiki.snackbag.net",'
+            '"source_type":"local_git","source":"/home/kris/wiki","username":"wiki",'
+            '"projectdir":"checkout","home":"/home/wiki","port":3001}\n'
+        ),
+        encoding="utf-8",
+    )
+    configtest_prefix = tmp_path / "staging"
+
+    exit_code = main(
+        [
+            "--json",
+            "--configtest",
+            str(configtest_prefix),
+            "--project-dir",
+            str(project_dir),
+            "update",
+            "wiki",
+        ]
+    )
+
+    assert exit_code == 0
+    cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
+    assert "git reset --hard" in cmdlog
+    assert "git pull --rebase" in cmdlog
+    assert "cd /home/wiki/checkout && exec go build -o wiki" in cmdlog
+    assert "systemctl restart wiki.service" in cmdlog
+
+
 def test_create_wsgi_local_git_uses_checkout_and_updater(tmp_path, capsys) -> None:
     source_dir = tmp_path / "source"
     source_dir.mkdir()
@@ -817,3 +962,39 @@ def test_create_rejects_existing_user(tmp_path) -> None:
         assert "user already exists" in str(exc)
     else:
         raise AssertionError("expected CreatePreflightError")
+
+
+def test_logs_go_site_uses_apache_and_journalctl(tmp_path, capsys) -> None:
+    project_dir = tmp_path / "projects"
+    project_dir.mkdir()
+    (project_dir / "wiki").write_text(
+        (
+            '{"type":"go_site","project":"wiki","hostname":"wiki.snackbag.net",'
+            '"source_type":"git","source":"git@github.com:snackbag/wiki.git","username":"wiki",'
+            '"projectdir":"checkout","home":"/home/wiki","port":3001}\n'
+        ),
+        encoding="utf-8",
+    )
+    configtest_prefix = tmp_path / "staging"
+
+    exit_code = main(
+        [
+            "--json",
+            "--configtest",
+            str(configtest_prefix),
+            "--project-dir",
+            str(project_dir),
+            "logs",
+            "wiki",
+        ]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert '"service_unit": "wiki.service"' in out
+    cmdlog = (configtest_prefix / "cmdlog.sh").read_text(encoding="utf-8")
+    assert (
+        "tail -F /var/log/httpd/error-wiki.snackbag.net.log "
+        "/var/log/httpd/access-wiki.snackbag.net.log" in cmdlog
+    )
+    assert "journalctl --no-pager -u wiki.service -f" in cmdlog

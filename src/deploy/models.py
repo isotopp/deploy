@@ -6,7 +6,7 @@ from typing import Any, Literal, cast
 
 from .errors import ProjectValidationError
 
-ProjectType = Literal["static_site", "redirect_site", "wsgi_site", "proxy", "custom"]
+ProjectType = Literal["static_site", "redirect_site", "wsgi_site", "proxy", "custom", "go_site"]
 SourceType = Literal["git", "local_git"]
 
 
@@ -58,8 +58,25 @@ class CustomProject(BaseProject):
     config: bool = True
 
 
+@dataclass(frozen=True)
+class GoSiteProject(BaseProject):
+    source_type: SourceType
+    source: str
+    username: str
+    project_dir: str
+    upstream_port: int
+    home: str | None = None
+    binary_name: str | None = None
+    service_name: str | None = None
+
+
 DeployProject = (
-    StaticSiteProject | RedirectSiteProject | WsgiSiteProject | ProxyProject | CustomProject
+    StaticSiteProject
+    | RedirectSiteProject
+    | WsgiSiteProject
+    | ProxyProject
+    | CustomProject
+    | GoSiteProject
 )
 
 
@@ -69,7 +86,14 @@ def project_type_to_command_name(project_type: ProjectType) -> str:
 
 def command_name_to_project_type(name: str) -> ProjectType:
     normalized = name.replace("-", "_")
-    if normalized not in {"static_site", "redirect_site", "wsgi_site", "proxy", "custom"}:
+    if normalized not in {
+        "static_site",
+        "redirect_site",
+        "wsgi_site",
+        "proxy",
+        "custom",
+        "go_site",
+    }:
         raise ProjectValidationError(f"unsupported project type: {name}")
     return normalized  # type: ignore[return-value]
 
@@ -168,6 +192,24 @@ def project_from_record(record: dict[str, Any], *, name: str | None = None) -> D
             project_type=project_type,
             hostname=hostname,
             config=True,
+        )
+
+    if project_type == "go_site":
+        upstream_port = record.get("upstream_port", record.get("port"))
+        if not isinstance(upstream_port, int):
+            raise ProjectValidationError("missing or invalid field: upstream_port")
+        return GoSiteProject(
+            name=project_name,
+            project_type=project_type,
+            hostname=hostname,
+            source_type=_source_type_value(record),
+            source=_source_value(record),
+            username=_require_str(record, "username"),
+            project_dir=_project_dir_default(project_name, record),
+            upstream_port=upstream_port,
+            home=_optional_str(record, "home"),
+            binary_name=_optional_str(record, "binary_name"),
+            service_name=_optional_str(record, "service_name"),
         )
 
     upstream_port = record.get("upstream_port", record.get("port"))

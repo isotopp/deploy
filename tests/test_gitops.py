@@ -4,7 +4,7 @@ from deploy.gitops import (
     discover_updater,
     local_git_safe_directories,
 )
-from deploy.models import StaticSiteProject
+from deploy.models import GoSiteProject, StaticSiteProject
 
 
 def test_discover_updater_from_pyproject(tmp_path) -> None:
@@ -87,3 +87,27 @@ def test_update_plan_for_local_git_uses_plain_git_pull(tmp_path) -> None:
     assert plan.commands[0] == ("git", "reset", "--hard")
     assert plan.commands[1] == ("git", "pull", "--rebase")
     assert len(plan.commands) == 2
+
+
+def test_update_plan_for_go_site_builds_and_restarts_service(tmp_path) -> None:
+    working_tree = tmp_path / "home" / "wiki" / "checkout"
+    working_tree.mkdir(parents=True)
+    project = GoSiteProject(
+        name="wiki",
+        project_type="go_site",
+        hostname="wiki.snackbag.net",
+        source_type="git",
+        source="git@github.com:snackbag/wiki.git",
+        username="wiki",
+        project_dir="checkout",
+        upstream_port=3001,
+        home=str(working_tree.parent),
+    )
+
+    plan = build_update_plan(project)
+
+    assert plan.supported is True
+    assert plan.commands[0] == ("git", "reset", "--hard")
+    assert plan.commands[1] == ("git", "pull", "--rebase")
+    assert plan.commands[2] == ("go", "build", "-o", "wiki")
+    assert plan.commands[3] == ("systemctl", "restart", "wiki.service")

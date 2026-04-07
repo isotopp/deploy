@@ -1,4 +1,10 @@
-from deploy.models import ProxyProject, RedirectSiteProject, WsgiSiteProject, project_from_record
+from deploy.models import (
+    GoSiteProject,
+    ProxyProject,
+    RedirectSiteProject,
+    WsgiSiteProject,
+    project_from_record,
+)
 
 
 def test_loads_legacy_proxy_record() -> None:
@@ -48,3 +54,23 @@ def test_loads_redirect_typo_compatibility() -> None:
 
     assert isinstance(project, RedirectSiteProject)
     assert project.to_hostname == "new.example.com"
+
+
+def test_loads_legacy_go_site_record() -> None:
+    project = project_from_record(
+        {
+            "type": "go_site",
+            "project": "wiki",
+            "hostname": "wiki.snackbag.net",
+            "github": "git@github.com:snackbag/wiki.git",
+            "username": "wiki",
+            "projectdir": "wiki",
+            "home": "/home/wiki",
+            "port": 3001,
+        }
+    )
+
+    assert isinstance(project, GoSiteProject)
+    assert project.source_type == "git"
+    assert project.upstream_port == 3001
+    assert project.project_dir == "wiki"

@@ -17,6 +17,7 @@ from .command_handlers import (
 from .models import (
     CustomProject,
     DeployProject,
+    GoSiteProject,
     ProxyProject,
     RedirectSiteProject,
     StaticSiteProject,
@@ -132,6 +133,20 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_create_args(custom_parser)
     custom_parser.add_argument("--config-file", type=Path, required=True)
 
+    go_parser = create_subparsers.add_parser(
+        "go",
+        help="create a Go service site behind the Apache proxy",
+    )
+    add_common_create_args(go_parser)
+    go_parser.add_argument("--source-type", choices=("git", "local_git"), required=True)
+    go_parser.add_argument("--source", required=True)
+    go_parser.add_argument("--username", required=True)
+    go_parser.add_argument("--upstream-port", "--port", type=int, required=True)
+    go_parser.add_argument("--project-dir-name", default=None)
+    go_parser.add_argument("--home", default=None)
+    go_parser.add_argument("--binary-name", default=None)
+    go_parser.add_argument("--service-name", default=None)
+
     redirect_parser = create_subparsers.add_parser(
         "redirect",
         help="create a redirect site preview",
@@ -213,6 +228,20 @@ def build_project_from_args(args: argparse.Namespace) -> DeployProject:
             project_type="custom",
             hostname=args.hostname,
             config=True,
+        )
+    if args.project_type == "go":
+        return GoSiteProject(
+            name=args.name,
+            project_type="go_site",
+            hostname=args.hostname,
+            source_type=args.source_type,
+            source=args.source,
+            username=args.username,
+            project_dir=args.project_dir_name or "checkout",
+            upstream_port=args.upstream_port,
+            home=args.home,
+            binary_name=args.binary_name,
+            service_name=args.service_name,
         )
     if args.project_type == "redirect":
         return RedirectSiteProject(

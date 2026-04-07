@@ -1,5 +1,5 @@
 from deploy.apache import render_site_config
-from deploy.models import ProxyProject, StaticSiteProject, WsgiSiteProject
+from deploy.models import GoSiteProject, ProxyProject, StaticSiteProject, WsgiSiteProject
 
 
 def test_renders_simple_proxy_macro_output() -> None:
@@ -50,3 +50,21 @@ def test_renders_static_macro_output_with_docroot() -> None:
     config = render_site_config(project)
 
     assert "Use StaticVHost keks.home.koehntopp.de /home/keks/checkout" in config.content
+
+
+def test_renders_go_site_as_proxy_macro_output() -> None:
+    project = GoSiteProject(
+        name="wiki",
+        project_type="go_site",
+        hostname="wiki.snackbag.net",
+        source_type="git",
+        source="git@github.com:snackbag/wiki.git",
+        username="wiki",
+        project_dir="checkout",
+        upstream_port=3001,
+        home="/home/wiki",
+    )
+
+    config = render_site_config(project)
+
+    assert "Use ProxyVHost wiki.snackbag.net 3001" in config.content

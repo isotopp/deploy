@@ -13,7 +13,7 @@ from .gitops import (
     normalize_runtime_command,
     resolved_uv_executable,
 )
-from .models import DeployProject, StaticSiteProject, WsgiSiteProject
+from .models import DeployProject, GoSiteProject, StaticSiteProject, WsgiSiteProject
 from .runner import CommandRunner
 from .runtime import RunMode
 
@@ -21,7 +21,7 @@ MANAGED_USER_GECOS_PREFIX = "Website owner "
 
 
 def ensure_fresh_source_backed_target(project: DeployProject, options: CommonOptions) -> None:
-    if not isinstance(project, (StaticSiteProject, WsgiSiteProject)):
+    if not isinstance(project, (StaticSiteProject, WsgiSiteProject, GoSiteProject)):
         return
 
     if options.execution.mode is not RunMode.LIVE:
@@ -45,7 +45,7 @@ def ensure_fresh_source_backed_target(project: DeployProject, options: CommonOpt
 
 
 def provision_source_backed_project(project: DeployProject, options: CommonOptions) -> None:
-    if not isinstance(project, (StaticSiteProject, WsgiSiteProject)):
+    if not isinstance(project, (StaticSiteProject, WsgiSiteProject, GoSiteProject)):
         return
 
     assert project.home is not None
@@ -82,7 +82,7 @@ def provision_source_backed_project(project: DeployProject, options: CommonOptio
 
 
 def configure_local_git_safe_directories(project: DeployProject, options: CommonOptions) -> None:
-    if not isinstance(project, (StaticSiteProject, WsgiSiteProject)):
+    if not isinstance(project, (StaticSiteProject, WsgiSiteProject, GoSiteProject)):
         return
     desired_safe_directories = _desired_safe_directories(project)
     existing_safe_directories = set()
@@ -100,7 +100,7 @@ def configure_local_git_safe_directories(project: DeployProject, options: Common
 def purge_source_backed_project(
     project: DeployProject, options: CommonOptions, *, force: bool = False
 ) -> tuple[Path | None, list[str]]:
-    if not isinstance(project, (StaticSiteProject, WsgiSiteProject)):
+    if not isinstance(project, (StaticSiteProject, WsgiSiteProject, GoSiteProject)):
         return None, []
 
     home_path = source_backed_home(project)
@@ -201,7 +201,9 @@ def managed_user_matches_hostname(*, gecos: str, hostname: str) -> bool:
     return gecos.startswith(MANAGED_USER_GECOS_PREFIX) and gecos == expected
 
 
-def _desired_safe_directories(project: StaticSiteProject | WsgiSiteProject) -> tuple[str, ...]:
+def _desired_safe_directories(
+    project: StaticSiteProject | WsgiSiteProject | GoSiteProject,
+) -> tuple[str, ...]:
     checkout_path = Path(project.home or source_backed_home(project) or "") / project.project_dir
     desired = [
         *local_git_safe_directories(project),

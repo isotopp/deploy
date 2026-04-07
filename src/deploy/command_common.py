@@ -4,7 +4,7 @@ import pwd
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from .models import DeployProject, StaticSiteProject, WsgiSiteProject
+from .models import DeployProject, GoSiteProject, StaticSiteProject, WsgiSiteProject
 from .runtime import ExecutionContext
 
 
@@ -27,13 +27,16 @@ def default_home(username: str) -> str:
 
 
 def prepare_project_for_create(project: DeployProject) -> DeployProject:
-    if isinstance(project, (StaticSiteProject, WsgiSiteProject)) and project.home is None:
+    if (
+        isinstance(project, (StaticSiteProject, WsgiSiteProject, GoSiteProject))
+        and project.home is None
+    ):
         return replace(project, home=default_home(project.username))
     return project
 
 
 def source_backed_home(project: DeployProject) -> Path | None:
-    if not isinstance(project, (StaticSiteProject, WsgiSiteProject)):
+    if not isinstance(project, (StaticSiteProject, WsgiSiteProject, GoSiteProject)):
         return None
     home = project.home or default_home(project.username)
     return Path(home)

@@ -7,6 +7,7 @@ from pathlib import Path
 @dataclass(frozen=True)
 class DeployPaths:
     project_dir: Path = Path("/etc/projects")
+    systemd_unit_dir: Path = Path("/etc/systemd/system")
     httpd_conf: Path = Path("/etc/httpd/conf/httpd.conf")
     apache_sites_dir: Path = Path("/etc/httpd/conf.sites.d")
     apache_log_dir: Path = Path("/var/log/httpd")

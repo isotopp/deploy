@@ -8,6 +8,7 @@ from socket import getfqdn
 from .models import (
     CustomProject,
     DeployProject,
+    GoSiteProject,
     ProxyProject,
     RedirectSiteProject,
     StaticSiteProject,
@@ -68,6 +69,11 @@ def _render_site_body(project: DeployProject, *, fragment_content: str | None = 
         return (
             f"\n# custom proxy preview for {project.hostname}\n"
             f"# upstream: {project.upstream_scheme}://{project.upstream_host}:{project.upstream_port}\n"
+            "# vim: syntax=apache ts=4 sw=4 sts=4 sr noet\n"
+        )
+    if isinstance(project, GoSiteProject):
+        return (
+            f"\nUse ProxyVHost {project.hostname} {project.upstream_port}\n"
             "# vim: syntax=apache ts=4 sw=4 sts=4 sr noet\n"
         )
     if isinstance(project, CustomProject):
