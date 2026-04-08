@@ -401,7 +401,8 @@ def show_project(
         print("fragment:")
         print(fragment_content.rstrip())
         print()
-    print(site_config.content.rstrip())
+    if not isinstance(project, CustomProject):
+        print(site_config.content.rstrip())
     return 0
 
 

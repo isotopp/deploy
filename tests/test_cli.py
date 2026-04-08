@@ -49,6 +49,24 @@ def test_show_export_writes_json_and_fragment(tmp_path, monkeypatch) -> None:
     ).read_text(encoding="utf-8")
 
 
+def test_show_custom_prints_fragment_only_once(tmp_path, capsys) -> None:
+    project_dir = tmp_path / "projects"
+    project_dir.mkdir()
+    fragment = "<VirtualHost *:443>\n    ServerName kris.home.koehntopp.de\n</VirtualHost>\n"
+    (project_dir / "kris").write_text(
+        '{"type":"custom","project":"kris","hostname":"kris.home.koehntopp.de","config":true}\n',
+        encoding="utf-8",
+    )
+    (project_dir / "kris.conf").write_text(fragment, encoding="utf-8")
+
+    exit_code = main(["--project-dir", str(project_dir), "show", "kris"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert out.count("fragment:") == 1
+    assert out.count("<VirtualHost *:443>") == 1
+
+
 def test_create_proxy_preview_as_json(capsys) -> None:
     exit_code = main(
         [
