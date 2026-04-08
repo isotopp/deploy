@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import json
 import sys
+import tomllib
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -87,6 +89,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="import ./<project> and optional ./<project>.conf, then restart httpd",
     )
     import_parser.add_argument("name", help="project name")
+
+    subparsers.add_parser("version", help="print the deploy package version")
 
     delete_parser = subparsers.add_parser(
         "delete",
@@ -534,6 +538,16 @@ def import_project(
     return 0
 
 
+def deploy_version() -> str:
+    try:
+        return importlib.metadata.version("deploy")
+    except importlib.metadata.PackageNotFoundError:
+        pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+        with pyproject.open("rb") as handle:
+            data = tomllib.load(handle)
+        return str(data["project"]["version"])
+
+
 class _noop_context:
     def __enter__(self):
         return None
@@ -580,6 +594,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         if options.execution.reporter is not None:
             options.execution.reporter.print_summary()
         return result
+
+    if args.command == "version":
+        version = deploy_version()
+        if options.json_output:
+            print(dump_json({"version": version}))
+        else:
+            print(version)
+        if options.execution.reporter is not None:
+            options.execution.reporter.print_summary()
+        return 0
 
     if args.command == "create":
         result = create_project(build_project_from_args(args), options)

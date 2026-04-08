@@ -1,3 +1,6 @@
+import json
+import re
+
 from deploy.cli import main
 from deploy.errors import CreatePreflightError, ImportPreflightError
 
@@ -14,6 +17,21 @@ def test_show_projects_as_json(tmp_path, capsys) -> None:
 
     assert exit_code == 0
     assert '"projects"' in capsys.readouterr().out
+
+
+def test_version_outputs_current_package_version(capsys) -> None:
+    exit_code = main(["version"])
+
+    assert exit_code == 0
+    assert re.fullmatch(r"\d+\.\d+\.\d+", capsys.readouterr().out.strip())
+
+
+def test_version_outputs_json(capsys) -> None:
+    exit_code = main(["--json", "version"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert re.fullmatch(r"\d+\.\d+\.\d+", payload["version"])
 
 
 def test_export_writes_json_and_fragment(tmp_path, monkeypatch) -> None:
