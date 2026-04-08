@@ -24,3 +24,7 @@ class AdoptPreflightError(DeployError):
 
 class UpdatePreflightError(DeployError):
     """Raised when an update operation requires manual inspection/intervention."""
+
+
+class ImportPreflightError(DeployError):
+    """Raised when an import operation cannot safely replace project metadata."""

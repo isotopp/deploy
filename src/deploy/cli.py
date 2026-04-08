@@ -1,20 +1,24 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
 from .apache import render_site_config
+from .apache_state import write_apache_state
 from .command_common import CommonOptions
 from .command_handlers import (
     adopt_project,
     bootstrap_apache,
     create_project,
     delete_project,
+    restart_httpd,
     restart_project,
     update_project,
 )
+from .errors import ImportPreflightError, ProjectNotFoundError
 from .models import (
     CustomProject,
     DeployProject,
@@ -23,6 +27,7 @@ from .models import (
     RedirectSiteProject,
     StaticSiteProject,
     WsgiSiteProject,
+    project_from_record,
 )
 from .output import dump_json
 from .project_store import ProjectStore
@@ -69,15 +74,19 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     show_parser = subparsers.add_parser("show", help="show a project or list projects")
-    show_parser.add_argument(
-        "--export",
-        type=Path,
-        help=(
-            "write the project JSON and optional .conf fragment "
-            "to the given filename in the current directory"
-        ),
-    )
     show_parser.add_argument("name", help="project name or 'projects'")
+
+    export_parser = subparsers.add_parser(
+        "export",
+        help="export a project to ./<project> and optional ./<project>.conf",
+    )
+    export_parser.add_argument("name", help="project name")
+
+    import_parser = subparsers.add_parser(
+        "import",
+        help="import ./<project> and optional ./<project>.conf, then restart httpd",
+    )
+    import_parser.add_argument("name", help="project name")
 
     delete_parser = subparsers.add_parser(
         "delete",
@@ -356,7 +365,6 @@ def show_project(
     name: str,
     *,
     json_output: bool,
-    export_path: Path | None = None,
     reporter: VerboseReporter | None = None,
 ) -> int:
     if name == "projects":
@@ -375,12 +383,6 @@ def show_project(
         fragment_content = store.load_fragment(name)
     with reporter.step("render apache site") if reporter else _noop_context():
         site_config = render_site_config(project, fragment_content=fragment_content)
-    if export_path is not None:
-        with reporter.step("export project") if reporter else _noop_context():
-            export_path.write_text(dump_json(project.to_record()) + "\n", encoding="utf-8")
-            if fragment_content is not None or isinstance(project, CustomProject):
-                Path(f"{export_path}.conf").write_text(fragment_content or "", encoding="utf-8")
-        return 0
     if json_output:
         print(
             dump_json(
@@ -406,6 +408,132 @@ def show_project(
     return 0
 
 
+def export_project(
+    store: ProjectStore,
+    name: str,
+    *,
+    json_output: bool,
+    reporter: VerboseReporter | None = None,
+) -> int:
+    with reporter.step("load project") if reporter else _noop_context():
+        project = store.load(name)
+    with reporter.step("load fragment") if reporter else _noop_context():
+        fragment_content = store.load_fragment(name)
+    export_path = Path(name)
+    with reporter.step("write export files") if reporter else _noop_context():
+        export_path.write_text(dump_json(project.to_record()) + "\n", encoding="utf-8")
+        wrote_fragment = False
+        if fragment_content is not None:
+            Path(f"{export_path}.conf").write_text(fragment_content, encoding="utf-8")
+            wrote_fragment = True
+    if json_output:
+        print(
+            dump_json(
+                {
+                    "project": project,
+                    "export_file": export_path,
+                    "fragment_file": Path(f"{export_path}.conf") if wrote_fragment else None,
+                }
+            )
+        )
+        return 0
+    print(f"project_file: {export_path}")
+    if wrote_fragment:
+        print(f"fragment_file: {export_path}.conf")
+    return 0
+
+
+def import_project(
+    store: ProjectStore,
+    name: str,
+    *,
+    options: CommonOptions,
+    reporter: VerboseReporter | None = None,
+) -> int:
+    import_path = Path(name)
+    fragment_path = Path(f"{name}.conf")
+    with reporter.step("load import file") if reporter else _noop_context():
+        try:
+            record = json.loads(import_path.read_text(encoding="utf-8"))
+        except FileNotFoundError as exc:
+            raise ProjectNotFoundError(f"import file {import_path} does not exist") from exc
+    with reporter.step("validate import file") if reporter else _noop_context():
+        if not isinstance(record, dict):
+            raise ImportPreflightError("import file must contain a JSON object")
+        project_name = record.get("project")
+        if project_name != name:
+            raise ImportPreflightError(
+                "import file project field does not match command name: "
+                f"{project_name!r} != {name!r}"
+            )
+        imported_project = project_from_record(record, name=name)
+        existing_project: DeployProject | None
+        try:
+            existing_project = store.load(name)
+        except ProjectNotFoundError:
+            existing_project = None
+        if (
+            existing_project is not None
+            and existing_project.project_type != imported_project.project_type
+        ):
+            raise ImportPreflightError(
+                "project type changes are not allowed: "
+                f"{existing_project.project_type} -> {imported_project.project_type}"
+            )
+        fragment_content = (
+            fragment_path.read_text(encoding="utf-8") if fragment_path.exists() else None
+        )
+        if isinstance(imported_project, CustomProject) and fragment_content is None:
+            raise ImportPreflightError(
+                f"custom project import requires fragment file {fragment_path}"
+            )
+    import_store = ProjectStore(options.project_dir, context=options.execution)
+    with reporter.step("store imported fragment") if reporter else _noop_context():
+        fragment_file: Path | None = None
+        if fragment_content is not None:
+            fragment_file = import_store.save_fragment(name, fragment_content)
+        elif existing_project is not None:
+            import_store.delete_fragment(name)
+    with reporter.step("write apache state") if reporter else _noop_context():
+        written, warnings = write_apache_state(
+            imported_project,
+            options=options,
+            store=import_store,
+        )
+    with reporter.step("restart httpd") if reporter else _noop_context():
+        restart_httpd(options)
+    site_config = render_site_config(
+        imported_project,
+        fragment_content=import_store.load_fragment(name),
+    )
+    if options.json_output:
+        print(
+            dump_json(
+                {
+                    "phase": "import",
+                    "mode": options.execution.mode.value,
+                    "project": imported_project,
+                    "written": written,
+                    "fragment_file": fragment_file,
+                    "apache_site": site_config,
+                    "warnings": warnings,
+                    "command_log": options.execution.command_log_path(),
+                }
+            )
+        )
+        return 0
+    print(f"mode: {options.execution.mode.value}")
+    for label, path in written.items():
+        print(f"{label}: {path}")
+    if fragment_file is not None:
+        print(f"fragment_file: {fragment_file}")
+    for warning in warnings:
+        print(f"warning: {warning}")
+    if options.execution.command_log_path() is not None:
+        print(f"command_log: {options.execution.command_log_path()}")
+    return 0
+
+
 class _noop_context:
     def __enter__(self):
         return None
@@ -425,7 +553,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             store,
             args.name,
             json_output=options.json_output,
-            export_path=args.export,
+            reporter=options.execution.reporter,
+        )
+        if options.execution.reporter is not None:
+            options.execution.reporter.print_summary()
+        return result
+
+    if args.command == "export":
+        result = export_project(
+            store,
+            args.name,
+            json_output=options.json_output,
+            reporter=options.execution.reporter,
+        )
+        if options.execution.reporter is not None:
+            options.execution.reporter.print_summary()
+        return result
+
+    if args.command == "import":
+        result = import_project(
+            store,
+            args.name,
+            options=options,
             reporter=options.execution.reporter,
         )
         if options.execution.reporter is not None:

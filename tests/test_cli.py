@@ -1,5 +1,5 @@
 from deploy.cli import main
-from deploy.errors import CreatePreflightError
+from deploy.errors import CreatePreflightError, ImportPreflightError
 
 
 def test_show_projects_as_json(tmp_path, capsys) -> None:
@@ -16,7 +16,7 @@ def test_show_projects_as_json(tmp_path, capsys) -> None:
     assert '"projects"' in capsys.readouterr().out
 
 
-def test_show_export_writes_json_and_fragment(tmp_path, monkeypatch) -> None:
+def test_export_writes_json_and_fragment(tmp_path, monkeypatch) -> None:
     project_dir = tmp_path / "projects"
     project_dir.mkdir()
     (project_dir / "kris").write_text(
@@ -33,19 +33,17 @@ def test_show_export_writes_json_and_fragment(tmp_path, monkeypatch) -> None:
         [
             "--project-dir",
             str(project_dir),
-            "show",
-            "--export",
-            "kris-export",
+            "export",
             "kris",
         ]
     )
 
     assert exit_code == 0
-    assert (tmp_path / "kris-export").exists()
-    assert (tmp_path / "kris-export.conf").exists()
-    assert '"type": "custom"' in (tmp_path / "kris-export").read_text(encoding="utf-8")
+    assert (tmp_path / "kris").exists()
+    assert (tmp_path / "kris.conf").exists()
+    assert '"type": "custom"' in (tmp_path / "kris").read_text(encoding="utf-8")
     assert "ServerName kris.home.koehntopp.de" in (
-        tmp_path / "kris-export.conf"
+        tmp_path / "kris.conf"
     ).read_text(encoding="utf-8")
 
 
@@ -65,6 +63,62 @@ def test_show_custom_prints_fragment_only_once(tmp_path, capsys) -> None:
     out = capsys.readouterr().out
     assert out.count("fragment:") == 1
     assert out.count("<VirtualHost *:443>") == 1
+
+
+def test_import_writes_project_and_fragment(tmp_path, monkeypatch, capsys) -> None:
+    project_dir = tmp_path / "projects"
+    project_dir.mkdir()
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "kris").write_text(
+        '{"type":"custom","project":"kris","hostname":"kris.home.koehntopp.de","config":true}\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "kris.conf").write_text(
+        "<VirtualHost *:443>\n    ServerName kris.home.koehntopp.de\n</VirtualHost>\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "--json",
+            "--configtest",
+            str(tmp_path / "staging"),
+            "--project-dir",
+            str(project_dir),
+            "import",
+            "kris",
+        ]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert '"phase": "import"' in out
+    assert '"fragment_file"' in out
+
+
+def test_import_rejects_type_changes(tmp_path, monkeypatch) -> None:
+    project_dir = tmp_path / "projects"
+    project_dir.mkdir()
+    (project_dir / "playout").write_text(
+        '{"type":"wsgi_site","project":"playout","hostname":"playout.snackbag.net","source":"git@example.invalid:playout.git","source_type":"git","username":"playout","project_dir":"playout","managed_user":false,"managed_checkout":false}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "playout").write_text(
+        '{"type":"custom","project":"playout","hostname":"playout.snackbag.net","config":true}\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "playout.conf").write_text(
+        "<VirtualHost *:443>\n</VirtualHost>\n",
+        encoding="utf-8",
+    )
+
+    try:
+        main(["--project-dir", str(project_dir), "import", "playout"])
+    except ImportPreflightError as exc:
+        assert "project type changes are not allowed" in str(exc)
+    else:
+        raise AssertionError("expected ImportPreflightError")
 
 
 def test_create_proxy_preview_as_json(capsys) -> None:

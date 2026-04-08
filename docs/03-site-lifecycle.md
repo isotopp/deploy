@@ -18,20 +18,35 @@ For a `custom` project, `show` also includes the stored config fragment.
 
 ## Export
 
-`show --export <filename> <name>` writes the project JSON to `<filename>`.
+`export <name>` writes the project JSON to `./<name>`.
 
-If the project has a fragment, it also writes `<filename>.conf`.
+If the project has a fragment, it also writes `./<name>.conf`.
 
 Example:
 
 ```sh
-deploy show --export /root/wiki-export wiki
+cd /root
+deploy export wiki
 ```
 
 This produces:
 
-- `/root/wiki-export`
-- `/root/wiki-export.conf` if the project has a fragment
+- `/root/wiki`
+- `/root/wiki.conf` if the project has a fragment
+
+## Import
+
+`import <name>` reads `./<name>` and optional `./<name>.conf`, validates the project definition, writes it to `/etc/projects`, regenerates Apache/TLS state, and restarts Apache.
+
+Import rejects project type changes for an existing project record.
+
+Examples:
+
+```sh
+cd /root
+deploy import wiki
+deploy --configtest /root/testconfig import wiki
+```
 
 ## Restart
 
@@ -161,4 +176,3 @@ deploy delete --force broken-site
 ```
 
 `--force` continues cleanup best-effort and reports warnings instead of aborting on every failure.
-
