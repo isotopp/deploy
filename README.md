@@ -4,11 +4,11 @@ This directory contains sysadmin-oriented documentation for `deploy`.
 
 Recommended reading order:
 
-1. [Installation And Bootstrap](/Users/kris/Source/codex/docs/01-installation-and-bootstrap.md)
-2. [Testing And Safe Generation](/Users/kris/Source/codex/docs/02-testing-and-safe-generation.md)
-3. [Site Lifecycle](/Users/kris/Source/codex/docs/03-site-lifecycle.md)
-4. [Site Types](/Users/kris/Source/codex/docs/04-site-types.md)
-5. [Adopting Legacy Sites](/Users/kris/Source/codex/docs/05-adopting-legacy-sites.md)
+1. [Installation And Bootstrap](./docs/01-installation-and-bootstrap.md)
+2. [Testing And Safe Generation](./docs/02-testing-and-safe-generation.md)
+3. [Site Lifecycle](./docs/03-site-lifecycle.md)
+4. [Site Types](./docs/04-site-types.md)
+5. [Adopting Legacy Sites](./docs/05-adopting-legacy-sites.md)
 
 The current deploy model supports these site types:
 
