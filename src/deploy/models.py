@@ -101,7 +101,7 @@ def command_name_to_project_type(name: str) -> ProjectType:
         "go_site",
     }:
         raise ProjectValidationError(f"unsupported project type: {name}")
-    return normalized  # type: ignore[return-value]
+    return cast(ProjectType, normalized)
 
 
 def _require_str(record: dict[str, Any], key: str) -> str:

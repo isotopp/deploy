@@ -9,6 +9,12 @@ from .models import DeployProject, project_from_record, project_path
 from .runtime import ExecutionContext, RunMode
 
 
+@dataclass(frozen=True)
+class ProjectSummary:
+    name: str
+    project_type: str
+
+
 @dataclass
 class ProjectStore:
     project_dir: Path
@@ -42,6 +48,10 @@ class ProjectStore:
         return sorted(path.name for path in target_dir.iterdir() if self._is_project_file(path))
 
     def load(self, name: str) -> DeployProject:
+        record = self.load_record(name)
+        return project_from_record(record, name=name)
+
+    def load_record(self, name: str) -> dict[str, object]:
         path = project_path(self._target_dir(), name)
         if (
             self.context is not None
@@ -53,7 +63,23 @@ class ProjectStore:
             raise ProjectNotFoundError(f"project {name} does not exist")
         with path.open("r", encoding="utf-8") as handle:
             record = json.load(handle)
-        return project_from_record(record, name=name)
+        if not isinstance(record, dict):
+            raise ProjectValidationError(f"project {name} is not a JSON object")
+        return record
+
+    def list_summaries(self) -> list[ProjectSummary]:
+        summaries: list[ProjectSummary] = []
+        for name in self.list_names():
+            try:
+                record = self.load_record(name)
+            except ProjectValidationError:
+                summaries.append(ProjectSummary(name=name, project_type="<invalid>"))
+                continue
+            project_type = record.get("type")
+            if not isinstance(project_type, str) or not project_type:
+                project_type = "<invalid>"
+            summaries.append(ProjectSummary(name=name, project_type=project_type))
+        return summaries
 
     def load_supported_projects(
         self,

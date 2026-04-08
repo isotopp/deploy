@@ -16,7 +16,31 @@ def test_show_projects_as_json(tmp_path, capsys) -> None:
     exit_code = main(["--json", "--project-dir", str(project_dir), "show", "projects"])
 
     assert exit_code == 0
-    assert '"projects"' in capsys.readouterr().out
+    assert json.loads(capsys.readouterr().out) == [{"name": "plik", "type": "proxy"}]
+
+
+def test_show_projects_prints_name_and_type_table(tmp_path, capsys) -> None:
+    project_dir = tmp_path / "projects"
+    project_dir.mkdir()
+    (project_dir / "alpha").write_text(
+        '{"type":"proxy","project":"alpha","hostname":"alpha.example.invalid","port":8084}\n',
+        encoding="utf-8",
+    )
+    (project_dir / "beta").write_text(
+        '{"type":"custom","project":"beta","hostname":"beta.example.invalid","config":true}\n',
+        encoding="utf-8",
+    )
+
+    exit_code = main(["--project-dir", str(project_dir), "show", "projects"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "NAME" in out
+    assert "TYPE" in out
+    assert "alpha" in out
+    assert "proxy" in out
+    assert "beta" in out
+    assert "custom" in out
 
 
 def test_version_outputs_current_package_version(capsys) -> None:

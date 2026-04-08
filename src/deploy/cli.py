@@ -373,12 +373,21 @@ def show_project(
 ) -> int:
     if name == "projects":
         with reporter.step("list projects") if reporter else _noop_context():
-            names = store.list_names()
+            summaries = store.list_summaries()
         if json_output:
-            print(dump_json({"projects": names}))
+            print(
+                dump_json(
+                    [
+                        {"name": summary.name, "type": summary.project_type}
+                        for summary in summaries
+                    ]
+                )
+            )
         else:
-            for project_name in names:
-                print(f"- {project_name}")
+            name_width = max((len(summary.name) for summary in summaries), default=4)
+            print(f"{'NAME':<{name_width}}  TYPE")
+            for summary in summaries:
+                print(f"{summary.name:<{name_width}}  {summary.project_type}")
         return 0
 
     with reporter.step("load project") if reporter else _noop_context():
