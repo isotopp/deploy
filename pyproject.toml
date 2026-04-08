@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "deploy"
 version = "1.0.2"
 description = "Apache deployment management tool"
-readme = "REFACTORING.md"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
   "httpx>=0.28.0",
